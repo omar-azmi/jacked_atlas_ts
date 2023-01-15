@@ -23,6 +23,6 @@ input base image:
 | ----------- | ----------- |
 | input base image | <img src="../examples/1/base_image.jpg" alt="jack atlas holding juice" width="400"> |
 | input juice bitmask | <img src="../examples/1/bitmasks/juice.png" alt="juice bitmask" width="100"> |
-| input mask rect coordinates | `let [x, y, width, height] = [185, 184, 172, 258]` |
+| input mask rect coordinates | `let rect = { x: 185, y: 184, width: 172, height: 258 }` |
 | output extracted image | <img src="../examples/1/extracts/juice.png" alt="extracted juice" width="100"> |
 

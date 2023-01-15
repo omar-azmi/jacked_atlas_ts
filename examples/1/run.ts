@@ -1,7 +1,6 @@
 // @deno-types="npm:@types/offscreencanvas"
 import { OffscreenCanvas, OffscreenCanvasRenderingContext2D } from "npm:@types/offscreencanvas"
 import { Rect, positiveRect } from "https://deno.land/x/kitchensink_ts/struct.ts"
-import { } from "https://deno.land/x/kitchensink_ts/mod.ts"
 
 
 const
@@ -50,66 +49,15 @@ class ClipMask {
 		clipmask_offctx.putImageData(this.mask_imgdata!, 0, 0)
 		clipmask_offctx.globalCompositeOperation = "source-in"
 		clipmask_offctx.drawImage(img, -this.rect.x, -this.rect.y)
-		//this.mask_imgdata!
 	}
-}
-
-const
-	offcanvas: OffscreenCanvas = document.createElement("canvas"), //new OffscreenCanvas(100, 100),
-	offctx: OffscreenCanvasRenderingContext2D = offcanvas.getContext("2d", { willReadFrequently: true })
-offctx.imageSmoothingEnabled = false
-
-const drawBase = (img_url: string, dx: number, dy: number, dw: number, dh: number) => {
-	const img = new Image()
-	return new Promise((resolve, reject) => {
-		img.onload = () => {
-			offcanvas.width = dw
-			offcanvas.height = dh
-			offctx.globalCompositeOperation = "copy"
-			offctx.drawImage(img, -dx, -dy)
-			resolve(img)
-		}
-		img.onerror = () => reject(img)
-		img.src = img_url
-	})
-}
-
-const clipMask = (mask_url: string) => {
-	const img = new Image()
-	return new Promise((resolve, reject) => {
-		img.onload = () => {
-			offctx.globalCompositeOperation = "multiply"
-			offctx.drawImage(img, 0, 0)
-			resolve(img)
-		}
-		img.onerror = () => reject(img)
-		img.src = mask_url
-	})
-}
-
-const render_canvas = document.createElement("canvas")
-render_canvas.width = 500
-render_canvas.height = 500
-const render_ctx = render_canvas.getContext("2d")!
-render_ctx.imageSmoothingEnabled = false
-//document.body.appendChild(offcanvas)
-
-const getClippedImage = () => {
-	// render_ctx.clearRect(0, 0, 500, 500)
-	// render_ctx.drawImage(offcanvas, 0, 0)
 }
 
 let
 	base_img = "./base_image.jpg",
 	bitmask_img = "./bitmasks/juice.png",
-	bitmask_rect_arr = [185, 184, 172, 258] as const,
 	bitmask_rect = { x: 185, y: 184, width: 172, height: 258 } as const
 
-//drawBase(base_img, ...bitmask_rect).then(() => clipMask(bitmask_img)).then(getClippedImage)
 document.body.appendChild(clipmask_offcanvas)
-let a = new ClipMask(bitmask_img, bitmask_rect)
 const img = new Image()
-img.onload = () => {
-	a.clipImage(img)
-}
+img.onload = () => new ClipMask(bitmask_img, bitmask_rect).clipImage(img)
 img.src = base_img
