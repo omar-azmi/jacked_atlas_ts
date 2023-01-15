@@ -1,0 +1,39 @@
+{
+	"name": "jacked_atlas_ts",
+	"version": "0.1.0",
+	"description": "a tool for extracting region of interest based on a bitmap mask",
+	"author": "Omar Azmi",
+	"license": "Lulz plz don't steal yet",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/omar-azmi/jacked_atlas_ts.git"
+	},
+	"bugs": {
+		"url": "https://github.com/omar-azmi/jacked_atlas_ts/issues"
+	},
+	"types": [
+		"offscreencanvas"
+	],
+	"compilerOptions": {
+		"lib": [
+			"esnext",
+			"dom"
+		],
+		"strict": true,
+		"allowJs": true
+	},
+	"devDependencies": {
+		"typescript": "^4.9.3",
+		"typedoc": "^0.23.21",
+		"esbuild": "^0.15.14"
+	},
+	"node_packageManager": "npm",
+	"tasks": {
+		"build-dist": "deno run -A ./build_dist.ts",
+		"build-npm": "deno run -A ./build_npm.ts",
+		"build-npm-docs": "cd \"./npm/\" && npm run build-docs",
+		"build-npm-dist": "cd \"./npm/\" && npm run build-dist",
+		"clean": "deno run -A ./clean.ts",
+		"test": "deno test -A ./src/mod.ts"
+	}
+}
