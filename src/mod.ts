@@ -46,11 +46,11 @@ class ClipMask {
 
 	/** load an image from a local path or url, such as: `"./bitmasks/juice.png"` or `"https://picsum.photos/200/300?grayscale"` */
 	fromURL = (src_url: string, rect: Partial<Rect>) => {
-		const img = new Image()
 		this.src_url = src_url
-		return new Promise<void>((resolve, reject) => {
-			img.onerror = () => reject(`failed to load url:\n\t${src_url}`)
-			img.onload = () => {
+		const img = new Image()
+		img.src = src_url
+		return img.decode()
+			.then(() => {
 				const { width: w, height: h } = img
 				rect.width = w
 				rect.height = h
@@ -59,12 +59,9 @@ class ClipMask {
 				clipmask_offctx.globalCompositeOperation = "copy"
 				clipmask_offctx.drawImage(img, 0, 0)
 				const { data } = clipmask_offctx.getImageData(0, 0, w, h)
-				resolve(
-					this.fromBuffer(data, rect as { x?: number, y?: number, width: number, height: number })
-				)
-			}
-			img.src = src_url
-		})
+				return this.fromBuffer(data, rect as { x?: number, y?: number, width: number, height: number })
+			})
+			.catch(() => { throw new Error(`failed to load url:\n\t${src_url}`) })
 	}
 
 	/** load an image from a string of data uri, such as: `"data:image/gif;base64,R0l..."` */
@@ -124,11 +121,10 @@ class JAtlasManager {
 	loadImage = (src_url: FilePath | Base64Image) => {
 		this.source = src_url
 		this.img = new Image()
-		this.imgloaded = new Promise<this["img"]>((resolve, reject) => {
-			this.img!.onerror = () => reject(`failed to load url:\n\t${src_url}`)
-			this.img!.onload = () => resolve(this.img!)
-			this.img!.src = src_url
-		})
+		this.img.src = src_url
+		this.imgloaded = this.img.decode()
+			.then(() => this.img)
+			.catch(() => { throw new Error(`failed to load url:\n\t${src_url}`) })
 		return this.imgloaded
 	}
 
