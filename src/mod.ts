@@ -1,7 +1,8 @@
 import { Rect } from "https://deno.land/x/kitchensink_ts/struct.ts"
 
 
-type Base64ImageHeader = `data:image/${"jpeg" | "jpg" | "png" | "gif" | "webp"};base64,`
+type ImageDataFormats = `image/${"jpeg" | "jpg" | "png" | "gif" | "webp"}`
+type Base64ImageHeader = `data:${ImageDataFormats};base64,`
 type Base64Image = `${Base64ImageHeader}${string}`
 type FilePath = string
 interface JAtlasEntry {
@@ -23,6 +24,7 @@ interface JAtlas {
 const isBase64Image = (obj?: string): obj is Base64Image => obj === undefined ? false : obj.startsWith("data:image/")
 
 const
+	clipmask_data_format: ImageDataFormats = "image/webp",
 	clipmask_offcanvas = new OffscreenCanvas(10, 10),
 	clipmask_offctx = clipmask_offcanvas.getContext("2d", { willReadFrequently: true }) as OffscreenCanvasRenderingContext2D
 clipmask_offctx.imageSmoothingEnabled = false
@@ -77,7 +79,7 @@ class ClipMask {
 		this.rect = rect as Rect
 		clipmask_offctx.globalCompositeOperation = "copy"
 		clipmask_offctx.putImageData(new ImageData(ClipMask.turnTransparent(buf) as Uint8ClampedArray, rect.width, rect.height), 0, 0)
-		this.data_blob = await clipmask_offcanvas.convertToBlob({ type: "image/png" })
+		this.data_blob = await clipmask_offcanvas.convertToBlob({ type: clipmask_data_format })
 		if (isBase64Image(this.src_url)) this.src_url = undefined
 		return
 	}
@@ -94,6 +96,8 @@ class ClipMask {
 	clipImage = async (img: CanvasImageSource) => {
 		if (this.data_blob === undefined) await this.fromURL(this.src_url!, this.rect)
 		return createImageBitmap(this.data_blob!).then(mask_img => {
+			clipmask_offcanvas.width = this.rect.width
+			clipmask_offcanvas.height = this.rect.height
 			clipmask_offctx.globalCompositeOperation = "copy"
 			clipmask_offctx.drawImage(mask_img, 0, 0)
 			clipmask_offctx.globalCompositeOperation = "source-in"
@@ -102,3 +106,60 @@ class ClipMask {
 	}
 }
 
+const
+	atlas_canvas = document.createElement("canvas"),
+	atlas_ctx = atlas_canvas.getContext("2d")!
+document.body.appendChild(atlas_canvas)
+
+class JAtlasManager {
+	source!: FilePath | Base64Image
+	entries: { [id: number]: ClipMask } = {}
+	imgloaded!: Promise<this["img"]>
+	img?: HTMLImageElement
+
+	constructor(src_url: FilePath | Base64Image) {
+		this.loadImage(src_url)
+	}
+
+	loadImage = (src_url: FilePath | Base64Image) => {
+		this.source = src_url
+		this.img = new Image()
+		this.imgloaded = new Promise<this["img"]>((resolve, reject) => {
+			this.img!.onerror = () => reject(`failed to load url:\n\t${src_url}`)
+			this.img!.onload = () => resolve(this.img!)
+			this.img!.src = src_url
+		})
+		return this.imgloaded
+	}
+
+	addEntry = (entry: JAtlasEntry | string, id?: number) => {
+		if (typeof entry === "string") entry = JSON.parse(entry) as JAtlasEntry
+		const
+			{ x, y, width, height, kind, data } = entry,
+			mask = new ClipMask(kind + data, { x, y, width, height })
+		this.entries[id ?? Date.now() % 1000_000_000] = mask
+	}
+
+	addEntries = (entries: { [id: number]: JAtlasEntry }) => {
+		for (const [id, entry] of Object.entries(entries)) this.addEntry(entry, parseInt(id))
+	}
+
+	showEntry = async (id: number) => {
+		await this.imgloaded
+		await this.entries[id].clipImage(this.img!).then(() => {
+			atlas_canvas.width = clipmask_offcanvas.width
+			atlas_canvas.height = clipmask_offcanvas.height
+			atlas_ctx.drawImage(clipmask_offcanvas, 0, 0)
+		})
+	}
+
+	static fromJSON = (atlas_json_text: string): JAtlasManager => {
+		const
+			atlas = JSON.parse(atlas_json_text) as JAtlas,
+			new_atlas_manager = new JAtlasManager(atlas.source)
+		new_atlas_manager.addEntries(atlas.entries)
+		return new_atlas_manager
+	}
+
+	static fromURL = (json_url: FilePath): Promise<JAtlasManager> => fetch(json_url).then(async (response) => JAtlasManager.fromJSON(await response.text()))
+}
