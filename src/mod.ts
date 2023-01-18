@@ -2,6 +2,15 @@ import { Rect } from "https://deno.land/x/kitchensink_ts/struct.ts"
 /** TODO:
  * - recursive/treelike/nested clipmasks or jatlas, where the parent `JAtlasEntry` can be used as the `source` for the child `entries`
 */
+const DEBUG = true
+const blobToBase64 = (blob: Blob) => {
+	const reader = new FileReader()
+	return new Promise<string>((resolve, reject) => {
+		reader.onload = () => resolve((reader.result as string).split(";base64,", 2)[1])
+		reader.onerror = reject
+		reader.readAsDataURL(blob)
+	})
+}
 
 type ImageDataFormats = `image/${"jpeg" | "jpg" | "png" | "gif" | "webp"}`
 type Base64ImageHeader = `data:${ImageDataFormats};base64,`
@@ -13,7 +22,7 @@ interface JAtlasEntry {
 	y: number
 	width: number
 	height: number
-	kind: Base64ImageHeader | "H" | "V" | "P" | "Z"
+	kind: Base64ImageHeader | "path" | "H" | "V" | "P" | "Z"
 	data: string
 }
 interface JAtlas {
@@ -151,6 +160,27 @@ class JAtlasManager {
 	}
 
 	static fromURL = (json_url: FilePath): Promise<JAtlasManager> => fetch(json_url).then(async (response) => JAtlasManager.fromJSON(await response.text()))
+
+	toJSON = async (): Promise<JAtlas> => {
+		const new_jatlas_json: JAtlas = {
+			source: this.source.toString(),
+			entries: {}
+		}
+		for (const [id, clipmask] of Object.entries(this.entries)) {
+			new_jatlas_json.entries[parseInt(id)] = {
+				...clipmask.rect,
+				kind:
+					clipmask.data_blob ? "data:" + clipmask.data_blob.type + ";base64," :
+						clipmask.src_url!.startsWith("data:image/") ? clipmask.src_url!.slice(0, clipmask.src_url!.indexOf(";base64,") + 8) :
+							"path",
+				data:
+					clipmask.data_blob ? await blobToBase64(clipmask.data_blob) :
+						clipmask.src_url!.startsWith("data:image/") ? clipmask.src_url!.slice(clipmask.src_url!.indexOf(";base64,") + 8) :
+							clipmask.src_url!,
+			}
+		}
+		return new_jatlas_json
+	}
 }
 
 class ClippedImage {
@@ -180,6 +210,13 @@ class HorizontalImageScroller {
 		this.canvas.width = width
 		this.canvas.height = height
 		this.ctx.translate((width / 2) | 0, 0)
+		if (DEBUG) {
+			this.ctx.lineWidth = 5
+			this.ctx.moveTo(0, 0)
+			this.ctx.lineTo(0, height)
+			this.ctx.stroke()
+			this.ctx.scale(0.25, 0.25)
+		}
 		if (append_to) this.appendTo(append_to)
 	}
 
@@ -205,4 +242,3 @@ class HorizontalImageScroller {
 		this.ctx.drawImage(img, x, 0)
 	}
 }
-
