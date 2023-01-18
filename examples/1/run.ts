@@ -1,5 +1,7 @@
 import { Rect } from "https://deno.land/x/kitchensink_ts/struct.ts"
-
+/** TODO:
+ * - recursive/treelike/nested clipmasks or jatlas, where the parent `JAtlasEntry` can be used as the `source` for the child `entries`
+*/
 
 type ImageDataFormats = `image/${"jpeg" | "jpg" | "png" | "gif" | "webp"}`
 type Base64ImageHeader = `data:${ImageDataFormats};base64,`
@@ -28,7 +30,6 @@ const
 	clipmask_offcanvas = new OffscreenCanvas(10, 10),
 	clipmask_offctx = clipmask_offcanvas.getContext("2d", { willReadFrequently: true }) as OffscreenCanvasRenderingContext2D
 clipmask_offctx.imageSmoothingEnabled = false
-
 
 class ClipMask {
 	rect: Rect
@@ -90,23 +91,19 @@ class ClipMask {
 
 	clearDataBlob = () => this.data_blob = undefined
 
-	clipImage = async (img: CanvasImageSource) => {
+	clipImage = async (img: CanvasImageSource): Promise<OffscreenCanvas> => {
 		if (this.data_blob === undefined) await this.fromURL(this.src_url!, this.rect)
-		return createImageBitmap(this.data_blob!).then(mask_img => {
+		return createImageBitmap(this.data_blob!).then(mask_img_bitmap => {
 			clipmask_offcanvas.width = this.rect.width
 			clipmask_offcanvas.height = this.rect.height
 			clipmask_offctx.globalCompositeOperation = "copy"
-			clipmask_offctx.drawImage(mask_img, 0, 0)
+			clipmask_offctx.drawImage(mask_img_bitmap, 0, 0)
 			clipmask_offctx.globalCompositeOperation = "source-in"
 			clipmask_offctx.drawImage(img, -this.rect.x, -this.rect.y)
+			return clipmask_offcanvas
 		})
 	}
 }
-
-const
-	atlas_canvas = document.createElement("canvas"),
-	atlas_ctx = atlas_canvas.getContext("2d")!
-document.body.appendChild(atlas_canvas)
 
 class JAtlasManager {
 	source!: FilePath | Base64Image
@@ -140,13 +137,9 @@ class JAtlasManager {
 		for (const [id, entry] of Object.entries(entries)) this.addEntry(entry, parseInt(id))
 	}
 
-	showEntry = async (id: number) => {
+	getEntryImage = async (id: number): Promise<OffscreenCanvas> => {
 		await this.imgloaded
-		await this.entries[id].clipImage(this.img!).then(() => {
-			atlas_canvas.width = clipmask_offcanvas.width
-			atlas_canvas.height = clipmask_offcanvas.height
-			atlas_ctx.drawImage(clipmask_offcanvas, 0, 0)
-		})
+		return this.entries[id].clipImage(this.img!)
 	}
 
 	static fromJSON = (atlas_json_text: string): JAtlasManager => {
@@ -160,13 +153,85 @@ class JAtlasManager {
 	static fromURL = (json_url: FilePath): Promise<JAtlasManager> => fetch(json_url).then(async (response) => JAtlasManager.fromJSON(await response.text()))
 }
 
-let atlas_man: JAtlasManager
-JAtlasManager.fromURL("./segments.jatlas.json").then((new_atlas_manager) => atlas_man = new_atlas_manager)
+class ClippedImage {
+	jatlas_manager: JAtlasManager
+	entry_id: keyof this["jatlas_manager"]["entries"] & number
 
-fetch("./segments.jatlas.json")
-	.then(async (response) => JSON.parse(await response.text()) as JAtlas)
-	.then((atlas_json: JAtlas) => {
-		atlas_man = new JAtlasManager(atlas_json.source)
-		for (const [id, entry] of Object.entries(atlas_json.entries)) atlas_man.addEntry(entry, parseInt(id))
+	constructor(jatlas_manager: JAtlasManager, entry_id: number) {
+		this.jatlas_manager = jatlas_manager
+		this.entry_id = entry_id
+	}
+
+	getImage = () => this.jatlas_manager.getEntryImage(this.entry_id)
+
+	getRect = () => this.jatlas_manager.entries[this.entry_id].rect
+}
+
+class HorizontalImageScroller {
+	canvas: HTMLCanvasElement
+	ctx: CanvasRenderingContext2D
+	entries: Array<CanvasImageSource | ClippedImage> = []
+	left: number = 0
+	right: number = 0
+
+	constructor(append_to?: HTMLElement, width: number = 300, height: number = 200) {
+		this.canvas = document.createElement("canvas")
+		this.ctx = this.canvas.getContext("2d")!
+		this.canvas.width = width
+		this.canvas.height = height
+		this.ctx.translate((width / 2) | 0, 0)
+		this.ctx.lineWidth = 5
+		this.ctx.moveTo(0, 0)
+		this.ctx.lineTo(0, height)
+		this.ctx.stroke()
+		this.ctx.scale(0.1, 0.1)
+		if (append_to) this.appendTo(append_to)
+	}
+
+	appendTo = (element: HTMLElement) => element.appendChild(this.canvas)
+
+	addEntryLeft = async (entry: this["entries"][number]) => {
+		this.entries.unshift(entry)
+		const width = entry instanceof ClippedImage ? entry.getRect().width : entry.width as number
+		this.left -= width
+		const
+			x = this.left,
+			img = entry instanceof ClippedImage ? await entry.getImage() : entry as CanvasImageSource
+		this.ctx.drawImage(img, x, 0)
+	}
+
+	addEntryRight = async (entry: this["entries"][number]) => {
+		this.entries.push(entry)
+		const
+			width = entry instanceof ClippedImage ? entry.getRect().width : entry.width as number,
+			x = this.right
+		this.right += width
+		const img = entry instanceof ClippedImage ? await entry.getImage() : entry as CanvasImageSource
+		this.ctx.drawImage(img, x, 0)
+	}
+}
+
+let
+	atlas_man: JAtlasManager,
+	hscroller: HorizontalImageScroller
+
+JAtlasManager.fromURL("./segments.jatlas.json")
+	.then((new_atlas_manager) => {
+		const
+			c1 = new ClippedImage(new_atlas_manager, 0),
+			c2 = new ClippedImage(new_atlas_manager, 1)
+		atlas_man = new_atlas_manager
+		hscroller = new HorizontalImageScroller(document.body, 1500, 600)
+		let t0 = performance.now()
+		//for (let l = 0; l < 10; l++) hscroller.addEntryLeft(Math.random() >= 0.5 ? c1 : c2)
+		//for (let r = 0; r < 10; r++) hscroller.addEntryRight(Math.random() < 0.5 ? c1 : c2)
+		hscroller.addEntryLeft(c1)
+		hscroller.addEntryLeft(c2)
+		hscroller.addEntryLeft(c2)
+		hscroller.addEntryLeft(c2)
+		hscroller.addEntryLeft(c1)
+		hscroller.addEntryLeft(c1)
+		let t1 = performance.now()
+		console.log(`draw loop time: ${t1 - t0}`)
 	})
-	.then(() => atlas_man.showEntry(1))
+
