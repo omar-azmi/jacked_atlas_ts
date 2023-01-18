@@ -151,23 +151,23 @@ class JAtlasManager {
 		return this.entries[id].clipImage(this.img!)
 	}
 
-	static fromJSON = (atlas_json_text: string): JAtlasManager => {
-		const
-			atlas = JSON.parse(atlas_json_text) as JAtlas,
-			new_atlas_manager = new JAtlasManager(atlas.source)
-		new_atlas_manager.addEntries(atlas.entries)
+	static fromObject = (jatlas_object: JAtlas): JAtlasManager => {
+		const new_atlas_manager = new JAtlasManager(jatlas_object.source)
+		new_atlas_manager.addEntries(jatlas_object.entries)
 		return new_atlas_manager
 	}
 
+	static fromJSON = (atlas_json_text: string): JAtlasManager => JAtlasManager.fromObject(JSON.parse(atlas_json_text) as JAtlas)
+
 	static fromURL = (json_url: FilePath): Promise<JAtlasManager> => fetch(json_url).then(async (response) => JAtlasManager.fromJSON(await response.text()))
 
-	toJSON = async (): Promise<JAtlas> => {
-		const new_jatlas_json: JAtlas = {
+	toObject = async (): Promise<JAtlas> => {
+		const new_jatlas_object: JAtlas = {
 			source: this.source.toString(),
 			entries: {}
 		}
 		for (const [id, clipmask] of Object.entries(this.entries)) {
-			new_jatlas_json.entries[parseInt(id)] = {
+			new_jatlas_object.entries[parseInt(id)] = {
 				...clipmask.rect,
 				kind:
 					clipmask.data_blob ? "data:" + clipmask.data_blob.type + ";base64," :
@@ -179,8 +179,10 @@ class JAtlasManager {
 							clipmask.src_url!,
 			}
 		}
-		return new_jatlas_json
+		return new_jatlas_object
 	}
+
+	toJSON = async (): Promise<string> => JSON.stringify(await this.toObject())
 }
 
 class ClippedImage {
@@ -245,7 +247,8 @@ class HorizontalImageScroller {
 
 let
 	atlas_man: JAtlasManager,
-	hscroller: HorizontalImageScroller
+	hscroller: HorizontalImageScroller,
+	atlas_man_json: string
 
 JAtlasManager.fromURL("./segments.jatlas.json")
 	.then((new_atlas_manager) => {
@@ -263,5 +266,9 @@ JAtlasManager.fromURL("./segments.jatlas.json")
 		}, Math.random() * 10_000)
 		let t1 = performance.now()
 		console.log(`draw loop time: ${t1 - t0}`)
+		return new_atlas_manager
+	})
+	.then(async (new_atlas_manager) => {
+		atlas_man_json = await new_atlas_manager.toJSON()
 	})
 
