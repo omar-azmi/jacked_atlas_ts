@@ -1,4 +1,7 @@
 import { Rect } from "https://deno.land/x/kitchensink_ts/struct.ts"
+import { constructImageData, getBoundingBox, cropImageData } from "https://deno.land/x/kitchensink_ts/image.ts"
+import { sliceIntervals, Intervals } from "file:///D:/My%20works/2022/deno_rewrites/kitchensink_ts/src/typedbuffer.ts"
+
 /** TODO:
  * - recursive/treelike/nested clipmasks or jatlas, where the parent `JAtlasEntry` can be used as the `source` for the child `entries`
 */

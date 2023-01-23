@@ -1,22 +1,16 @@
-import { Rect } from "https://deno.land/x/kitchensink_ts/struct.ts"
+import { blobToBase64 } from "file:///D:/My%20works/2022/deno_rewrites/kitchensink_ts/src/browser.ts"
+import { Base64ImageHeader, Base64ImageString, ImageMIMEType, constructImageData, getBase64ImageBody, getBase64ImageHeader, isBase64Image } from "file:///D:/My%20works/2022/deno_rewrites/kitchensink_ts/src/image.ts"
+import { Rect, SimpleImageData } from "file:///D:/My%20works/2022/deno_rewrites/kitchensink_ts/src/struct.ts"
+import { Intervals, sliceIntervalsTypedSubarray } from "file:///D:/My%20works/2022/deno_rewrites/kitchensink_ts/src/typedbuffer.ts"
+
 /** TODO:
  * - recursive/treelike/nested clipmasks or jatlas, where the parent `JAtlasEntry` can be used as the `source` for the child `entries`
 */
 const DEBUG = true
-const blobToBase64 = (blob: Blob) => {
-	const reader = new FileReader()
-	return new Promise<string>((resolve, reject) => {
-		reader.onload = () => resolve((reader.result as string).split(";base64,", 2)[1])
-		reader.onerror = reject
-		reader.readAsDataURL(blob)
-	})
-}
 
-type ImageDataFormats = `image/${"jpeg" | "jpg" | "png" | "gif" | "webp"}`
-type Base64ImageHeader = `data:${ImageDataFormats};base64,`
-type Base64Image = `${Base64ImageHeader}${string}`
 type FilePath = string
-interface JAtlasEntry {
+
+export interface JAtlasEntry {
 	name?: string
 	x: number
 	y: number
@@ -25,28 +19,27 @@ interface JAtlasEntry {
 	kind: Base64ImageHeader | "path" | "H" | "V" | "P" | "Z"
 	data: string
 }
-interface JAtlas {
+
+export interface JAtlas {
 	/** image source to apply this atlas onto */
-	source: FilePath | Base64Image
+	source: FilePath | Base64ImageString
 	/** atlas entries of the source */
 	entries: { [id: number]: JAtlasEntry }
 }
 
-const isBase64Image = (obj?: string): obj is Base64Image => obj === undefined ? false : obj.startsWith("data:image/")
-
 const
-	clipmask_data_format: ImageDataFormats = "image/webp",
+	clipmask_data_format: ImageMIMEType = "image/webp",
 	clipmask_offcanvas = new OffscreenCanvas(10, 10),
 	clipmask_offctx = clipmask_offcanvas.getContext("2d", { willReadFrequently: true }) as OffscreenCanvasRenderingContext2D
 clipmask_offctx.imageSmoothingEnabled = false
 
-class ClipMask {
+export class ClipMask {
 	rect: Rect
 	/** file path of the source image, or base64 data uri <br>
 	 * if a base64 data uri is provided, then once it has been turned trasnparent and converted into `this.data_uri`, `this.src_url` will be deleted <br>
 	 * at any given time, one of either `this.src_url` or `this.data_blob` will be present
 	*/
-	src_url?: FilePath | Base64Image
+	src_url?: FilePath | Base64ImageString
 	data_blob?: Blob
 
 	constructor(src_url?: string, rect?: Partial<Rect>) {
@@ -114,17 +107,17 @@ class ClipMask {
 	}
 }
 
-class JAtlasManager {
-	source!: FilePath | Base64Image
+export class JAtlasManager {
+	source!: FilePath | Base64ImageString
 	entries: { [id: number]: ClipMask } = {}
 	imgloaded!: Promise<this["img"]>
 	img?: HTMLImageElement
 
-	constructor(src_url: FilePath | Base64Image) {
-		this.loadImage(src_url)
+	constructor(src_url?: FilePath | Base64ImageString) {
+		if (src_url) this.loadImage(src_url)
 	}
 
-	loadImage = (src_url: FilePath | Base64Image) => {
+	loadImage = (src_url: FilePath | Base64ImageString) => {
 		this.source = src_url
 		this.img = new Image()
 		this.img.src = src_url
@@ -161,23 +154,86 @@ class JAtlasManager {
 
 	static fromURL = (json_url: FilePath): Promise<JAtlasManager> => fetch(json_url).then(async (response) => JAtlasManager.fromJSON(await response.text()))
 
+	static fromJAtlasImage = (img: CanvasImageSource, id_numbering_func: (r: number, g: number, b: number, a: number) => number) => {
+		// id_numbering_func(r, g, b, a) === 0 must always be dedicated to background if (r, g, b, a) is a background pixel color
+		// algorithm: we do a continuous horizontal scan line over img_data.data, then every horizontal index range of pixels of matching id is appended to a dictionary
+		// once scanline is over, we convert the flat indexes of the ranges into (x, y) coordinates, then we find their range's max and min x and y to get the left, right top, bottom
+		// bounding box or the rect of that particular id.
+		// using the bounding box rect, we can offset the flat indexes of the ranges to begin from the top left, and then we fill in (255, 255, 255 255) everywhere in the ranges subarray of the id on a mini imageData.data canvas
+		return this.fromJAtlasImageData<4>(constructImageData(img), id_numbering_func)
+	}
+
+	static fromJAtlasImageData = <Channels extends (1 | 2 | 3 | 4) = 4>(img_data: SimpleImageData, id_numbering_func: (r: number, g: number, b: number, a: number) => number) => {
+		const
+			{ width, height, data } = img_data,
+			channels = data.length / (width * height) as Channels,
+			id_pixel_intervals: { [id: Exclude<number, 0>]: Intervals } = {}
+		console.assert(Number.isInteger(channels))
+		let [prev_id, id] = [0, 0]
+		for (let px = 0, len = data.length; px < len; px += channels) {
+			id = id_numbering_func(data[px + 0], data[px + 1], data[px + 2], data[px + 3])
+			if (id !== prev_id) {
+				id_pixel_intervals[id] ??= []
+				// register the current pixel as the start of an id_interval, only if id number is positive
+				if (id > 0) id_pixel_intervals[id].push(px)
+				// register the previous pixel as the end (exclusive) of the previous id_interval, only if prev_id number is positive
+				if (prev_id > 0) id_pixel_intervals[prev_id].push(px)
+			}
+			prev_id = id
+		}
+		// register the end index (excusive) of the final id as the final pixel
+		id_pixel_intervals[prev_id]?.push(data.length)
+		delete id_pixel_intervals[0]
+		// convert flat index of image data to (x, y) coordinates and find the bounding box of each id
+		const new_atlas_manager = new this()
+		for (const [id, intervals] of Object.entries(id_pixel_intervals)) {
+			let [min_x, min_y, max_x, max_y] = [width, height, 0, 0]
+			for (let i = 0, len = intervals.length; i < len; i++) {
+				const
+					px: number = intervals[i]!,
+					x = px % (width * channels),
+					y = (px / (width * channels)) | 0
+				if (x < min_x) min_x = x
+				if (x > max_x) max_x = x
+				if (y < min_y) min_y = y
+				if (y > max_y) max_y = y
+			}
+			const
+				mask = new ClipMask(),
+				[x, y, w, h] = [min_x, min_y, max_x - min_x, max_y - min_y],
+				[top_offset, left_offset, right_offset] = [y * width * channels, x * channels, (x + w) * channels],
+				/** TODO: expain how you came up with the equation */
+				mask_intervals = intervals.map((px: number) => px + ((px / (width * channels)) | 0) * (w * 4 - width * channels) - y * w * 4) as Intervals,
+				rgba_buf = new Uint8Array(w * h * 4).fill(0)
+			for (const sub_arr of sliceIntervalsTypedSubarray(rgba_buf, mask_intervals)) sub_arr.fill(1)
+			mask.fromBuffer(rgba_buf, { x, y, width: w, height: h })
+			new_atlas_manager.entries[parseInt(id)] = mask
+		}
+		return new_atlas_manager
+	}
+
+	/** TODO
+	toJAtlasImage = () => {}
+	*/
+
 	toObject = async (): Promise<JAtlas> => {
 		const new_jatlas_object: JAtlas = {
 			source: this.source.toString(),
 			entries: {}
 		}
 		for (const [id, clipmask] of Object.entries(this.entries)) {
-			new_jatlas_object.entries[parseInt(id)] = {
-				...clipmask.rect,
-				kind:
-					clipmask.data_blob ? "data:" + clipmask.data_blob.type + ";base64," :
-						clipmask.src_url!.startsWith("data:image/") ? clipmask.src_url!.slice(0, clipmask.src_url!.indexOf(";base64,") + 8) :
-							"path",
-				data:
-					clipmask.data_blob ? await blobToBase64(clipmask.data_blob) :
-						clipmask.src_url!.startsWith("data:image/") ? clipmask.src_url!.slice(clipmask.src_url!.indexOf(";base64,") + 8) :
-							clipmask.src_url!,
+			let kind: JAtlasEntry["kind"], data: JAtlasEntry["data"]
+			if (clipmask.data_blob) {
+				kind = "data:" + clipmask.data_blob.type + ";base64," as Base64ImageHeader
+				data = await blobToBase64(clipmask.data_blob)
+			} else if (isBase64Image(clipmask.src_url!)) {
+				kind = getBase64ImageHeader(clipmask.src_url!)
+				data = getBase64ImageBody(clipmask.src_url!)
+			} else {
+				kind = "path"
+				data = clipmask.src_url!
 			}
+			new_jatlas_object.entries[parseInt(id)] = { ...clipmask.rect, kind, data }
 		}
 		return new_jatlas_object
 	}
@@ -185,7 +241,7 @@ class JAtlasManager {
 	toJSON = async (): Promise<string> => JSON.stringify(await this.toObject())
 }
 
-class ClippedImage {
+export class ClippedImage {
 	jatlas_manager: JAtlasManager
 	entry_id: keyof this["jatlas_manager"]["entries"] & number
 
@@ -199,7 +255,7 @@ class ClippedImage {
 	getRect = () => this.jatlas_manager.entries[this.entry_id].rect
 }
 
-class HorizontalImageScroller {
+export class HorizontalImageScroller {
 	canvas: HTMLCanvasElement
 	ctx: CanvasRenderingContext2D
 	entries: Array<CanvasImageSource | ClippedImage> = []
