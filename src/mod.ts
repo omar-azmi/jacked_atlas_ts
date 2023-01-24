@@ -169,16 +169,16 @@ export class JAtlasManager {
 
 	static fromURL = (json_url: FilePath): Promise<JAtlasManager> => fetch(json_url).then(async (response) => JAtlasManager.fromJSON(await response.text()))
 
-	static fromJAtlasImage = (img: CanvasImageSource, img_src_url?: JAtlasManager["source"], id_numbering_func?: IDNumberingFunc) => {
+	static fromJAtlasImage = (img: CanvasImageSource, img_src_url?: JAtlasManager["source"], id_numbering_func?: IDNumberingFunc, onload_callback?: (loaded_new_atlas_manager: JAtlasManager) => void) => {
 		// id_numbering_func(r, g, b, a) === 0 must always be dedicated to background if (r, g, b, a) is a background pixel color
 		// algorithm: we do a continuous horizontal scan line over img_data.data, then every horizontal index range of pixels of matching id is appended to a dictionary
 		// once scanline is over, we convert the flat indexes of the ranges into (x, y) coordinates, then we find their range's max and min x and y to get the left, right top, bottom
 		// bounding box or the rect of that particular id.
 		// using the bounding box rect, we can offset the flat indexes of the ranges to begin from the top left, and then we fill in (255, 255, 255 255) everywhere in the ranges subarray of the id on a mini imageData.data canvas
-		return this.fromJAtlasImageData<4>(constructImageData(img), img_src_url, id_numbering_func)
+		return this.fromJAtlasImageData<4>(constructImageData(img), img_src_url, id_numbering_func, onload_callback)
 	}
 
-	static fromJAtlasImageData = <Channels extends (1 | 2 | 3 | 4) = 4>(img_data: SimpleImageData, img_src_url?: JAtlasManager["source"], id_numbering_func?: IDNumberingFunc) => {
+	static fromJAtlasImageData = <Channels extends (1 | 2 | 3 | 4) = 4>(img_data: SimpleImageData, img_src_url?: JAtlasManager["source"], id_numbering_func?: IDNumberingFunc, onload_callback?: (loaded_new_atlas_manager: JAtlasManager) => void) => {
 		id_numbering_func ??= default_id_numbering_func
 		const
 			{ width, height, data } = img_data,
@@ -201,7 +201,9 @@ export class JAtlasManager {
 		id_pixel_intervals[prev_id]?.push(data.length)
 		delete id_pixel_intervals[0]
 		// convert flat index of image data to (x, y) coordinates and find the bounding box of each id
-		const new_atlas_manager = new this(img_src_url)
+		const
+			new_atlas_manager = new this(img_src_url),
+			mask_from_buffer_promises: Promise<void>[] = []
 		for (const [id, intervals] of Object.entries(id_pixel_intervals)) {
 			let [min_x, min_y, max_x, max_y] = [width, height, 0, 0]
 			for (let i = 0, len = intervals.length; i < len; i += 2) {
@@ -250,9 +252,10 @@ export class JAtlasManager {
 				mask_intervals = intervals.map((px: number) => 4 * (((px / channels % width) - x) + ((px / (channels * width) | 0) - y) * w)) as Intervals,
 				rgba_buf = new Uint8Array(w * h * 4).fill(0)
 			for (const sub_arr of sliceIntervalsTypedSubarray(rgba_buf, mask_intervals)) sub_arr.fill(255)
-			mask.fromBuffer(rgba_buf, { x, y, width: w, height: h })
+			mask_from_buffer_promises.push(mask.fromBuffer(rgba_buf, { x, y, width: w, height: h }))
 			new_atlas_manager.entries[parseFloat(id)] = mask
 		}
+		if (onload_callback) Promise.all(mask_from_buffer_promises).then(() => onload_callback(new_atlas_manager))
 		return new_atlas_manager
 	}
 

@@ -16,3 +16,24 @@
  * in general, you would want to keep `RGBA = 0x000000FF` (or `id = 0`) for the background
 */
 
+import { downloadBuffer } from "https://deno.land/x/kitchensink_ts@v0.5.5/browser.ts"
+import { ClippedImage, HorizontalImageScroller, JAtlasManager } from "../../src/mod.ts"
+
+const word_indexing_func = (r: number, g: number, b: number, a: number) => a === 0 ? 0 : (255 - a) / 100 + b * (2 ** 0) + g * (2 ** 8) + r * (2 ** 16)
+const img = new Image()
+let
+	word_atlas_manager: JAtlasManager,
+	hscroller: HorizontalImageScroller = new HorizontalImageScroller(document.body, 1400, 600)
+img.onload = () => {
+	let t0 = performance.now()
+	word_atlas_manager = JAtlasManager.fromJAtlasImage(img, "./manuscript.jpg", word_indexing_func, (loaded_word_atlas_manager) => {
+		loaded_word_atlas_manager.toJSON().then((json_str) => downloadBuffer(json_str, "manuscript.jpg.jatlas.json", "text/json"))
+	})
+	let t1 = performance.now()
+	console.log(`${t1 - t0} ms`)
+	for (const id of Object.keys(word_atlas_manager.entries)) {
+		const clipped_img = new ClippedImage(word_atlas_manager, parseFloat(id))
+		hscroller.addEntryLeft(clipped_img)
+	}
+}
+img.src = "./manuscript.jpg.jatlas.png"
