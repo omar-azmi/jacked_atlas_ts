@@ -1,7 +1,7 @@
-import { blobToBase64 } from "file:///D:/My%20works/2022/deno_rewrites/kitchensink_ts/src/browser.ts"
-import { Base64ImageHeader, Base64ImageString, ImageMIMEType, constructImageData, getBase64ImageBody, getBase64ImageHeader, isBase64Image } from "file:///D:/My%20works/2022/deno_rewrites/kitchensink_ts/src/image.ts"
-import { Rect, SimpleImageData } from "file:///D:/My%20works/2022/deno_rewrites/kitchensink_ts/src/struct.ts"
-import { Intervals, sliceIntervalsTypedSubarray } from "file:///D:/My%20works/2022/deno_rewrites/kitchensink_ts/src/typedbuffer.ts"
+import { blobToBase64 } from "https://deno.land/x/kitchensink_ts@v0.5.5/browser.ts"
+import { Base64ImageHeader, Base64ImageString, ImageMIMEType, constructImageData, getBase64ImageBody, getBase64ImageHeader, isBase64Image } from "https://deno.land/x/kitchensink_ts@v0.5.5/image.ts"
+import { Rect, SimpleImageData } from "https://deno.land/x/kitchensink_ts@v0.5.5/struct.ts"
+import { Intervals, sliceIntervalsTypedSubarray } from "https://deno.land/x/kitchensink_ts@v0.5.5/typedbuffer.ts"
 
 /** TODO:
  * - recursive/treelike/nested clipmasks or jatlas, where the parent `JAtlasEntry` can be used as the `source` for the child `entries`
@@ -77,18 +77,20 @@ export class ClipMask {
 		rect.x ??= 0
 		rect.y ??= 0
 		this.rect = rect as Rect
+		clipmask_offcanvas.width = rect.width
+		clipmask_offcanvas.height = rect.height
 		clipmask_offctx.globalCompositeOperation = "copy"
-		clipmask_offctx.putImageData(new ImageData(ClipMask.turnTransparent(buf) as Uint8ClampedArray, rect.width, rect.height), 0, 0)
+		clipmask_offctx.putImageData(new ImageData(ClipMask.turnTransparent(buf), rect.width, rect.height), 0, 0)
 		this.data_blob = await clipmask_offcanvas.convertToBlob({ type: clipmask_data_format })
 		if (isBase64Image(this.src_url)) this.src_url = undefined
 		return
 	}
 
 	/** turn the provided buffer of pixels to become transparent where a black pixel is present */
-	static turnTransparent = (buf: Uint8Array | Uint8ClampedArray) => {
+	static turnTransparent = (buf: Uint8Array | Uint8ClampedArray): Uint8ClampedArray => {
 		// turn black pixels completely transparent
 		for (let i = 0, len = buf.length * 4; i < len; i += 4) if (buf[i] + buf[i + 1] + buf[i + 2] === 0) buf[i + 3] = 0
-		return buf
+		return new Uint8ClampedArray(buf.buffer)
 	}
 
 	clearDataBlob = () => this.data_blob = undefined
@@ -106,6 +108,19 @@ export class ClipMask {
 		})
 	}
 }
+
+/** represents a function that takes 4 or less arguments as each pixel's color (0 to 255), and spits out a `float` id for the provided color <br>
+ * this pixel color identification is used by {@link JAtlasManager.fromJAtlasImage} and {@link JAtlasManager.fromJAtlasImageData} <br>
+ * in general, any id equal to `0` or less (negative) is considered background, and thus omitted <br>
+ * while, ids greater than `0` are registered in {@link JAtlasManager.entries} <br>
+ * the static methods mentioned above fallback to a default pixel identification function when none is provided: <br>
+ * ```ts
+ * const default_id_numbering_func: IDNumberingFunc = (r, g, b, a) => a === 0 ? 0 : (255 - a) / 100 + b * (2 ** 0) + g * (2 ** 8) + r * (2 ** 16)
+ * ```
+*/
+export type IDNumberingFunc = (r: number, g: number, b: number, a: number) => number
+
+const default_id_numbering_func: IDNumberingFunc = (r, g, b, a) => a === 0 ? 0 : (255 - a) / 100 + b * (2 ** 0) + g * (2 ** 8) + r * (2 ** 16)
 
 export class JAtlasManager {
 	source!: FilePath | Base64ImageString
@@ -154,16 +169,17 @@ export class JAtlasManager {
 
 	static fromURL = (json_url: FilePath): Promise<JAtlasManager> => fetch(json_url).then(async (response) => JAtlasManager.fromJSON(await response.text()))
 
-	static fromJAtlasImage = (img: CanvasImageSource, id_numbering_func: (r: number, g: number, b: number, a: number) => number) => {
+	static fromJAtlasImage = (img: CanvasImageSource, img_src_url?: JAtlasManager["source"], id_numbering_func?: IDNumberingFunc) => {
 		// id_numbering_func(r, g, b, a) === 0 must always be dedicated to background if (r, g, b, a) is a background pixel color
 		// algorithm: we do a continuous horizontal scan line over img_data.data, then every horizontal index range of pixels of matching id is appended to a dictionary
 		// once scanline is over, we convert the flat indexes of the ranges into (x, y) coordinates, then we find their range's max and min x and y to get the left, right top, bottom
 		// bounding box or the rect of that particular id.
 		// using the bounding box rect, we can offset the flat indexes of the ranges to begin from the top left, and then we fill in (255, 255, 255 255) everywhere in the ranges subarray of the id on a mini imageData.data canvas
-		return this.fromJAtlasImageData<4>(constructImageData(img), id_numbering_func)
+		return this.fromJAtlasImageData<4>(constructImageData(img), img_src_url, id_numbering_func)
 	}
 
-	static fromJAtlasImageData = <Channels extends (1 | 2 | 3 | 4) = 4>(img_data: SimpleImageData, id_numbering_func: (r: number, g: number, b: number, a: number) => number) => {
+	static fromJAtlasImageData = <Channels extends (1 | 2 | 3 | 4) = 4>(img_data: SimpleImageData, img_src_url?: JAtlasManager["source"], id_numbering_func?: IDNumberingFunc) => {
+		id_numbering_func ??= default_id_numbering_func
 		const
 			{ width, height, data } = img_data,
 			channels = data.length / (width * height) as Channels,
@@ -185,29 +201,57 @@ export class JAtlasManager {
 		id_pixel_intervals[prev_id]?.push(data.length)
 		delete id_pixel_intervals[0]
 		// convert flat index of image data to (x, y) coordinates and find the bounding box of each id
-		const new_atlas_manager = new this()
+		const new_atlas_manager = new this(img_src_url)
 		for (const [id, intervals] of Object.entries(id_pixel_intervals)) {
 			let [min_x, min_y, max_x, max_y] = [width, height, 0, 0]
-			for (let i = 0, len = intervals.length; i < len; i++) {
+			for (let i = 0, len = intervals.length; i < len; i += 2) {
 				const
-					px: number = intervals[i]!,
-					x = px % (width * channels),
-					y = (px / (width * channels)) | 0
+					start_px: number = intervals[i]! / channels,
+					x = start_px % width,
+					y = (start_px / width) | 0
 				if (x < min_x) min_x = x
-				if (x > max_x) max_x = x
 				if (y < min_y) min_y = y
+			}
+			for (let i = 1, len = intervals.length; i < len; i += 2) {
+				const
+					end_px: number = intervals[i]! / channels,
+					x = (end_px) % width,
+					y = ((end_px) / width) | 0
+				if (x > max_x) max_x = x
 				if (y > max_y) max_y = y
 			}
+			max_x++
+			max_y++
 			const
 				mask = new ClipMask(),
 				[x, y, w, h] = [min_x, min_y, max_x - min_x, max_y - min_y],
-				[top_offset, left_offset, right_offset] = [y * width * channels, x * channels, (x + w) * channels],
-				/** TODO: expain how you came up with the equation */
-				mask_intervals = intervals.map((px: number) => px + ((px / (width * channels)) | 0) * (w * 4 - width * channels) - y * w * 4) as Intervals,
+				/** the equation for `mask_intervals` can be easily derived as follows:
+				 * - `p0 = px of data`, `y0 = y-coords of pixel in data`, `x0 = x-coords of pixel in data`, `w0 = width of data`, `c0 = channels of data`
+				 * - `p1 = px of mask`, `y1 = y-coords of pixel in mask`, `x1 = x-coords of pixel in mask`, `w1 = width of mask`, `c1 = channels of mask`
+				 * - `y = y-coords of mask's rect`, `x = x-coords of mask's rect`
+				 * ```ts
+				 * let
+				 * 		p0 = (x0 + y0 * w0) * c0,
+				 * 		x0 = (p0 / c0) % w0,
+				 * 		y0 = trunc(p0 / (c0 * w0)),
+				 * 		p1 = (x1 + y1 * w1) * c1,
+				 * 		x1 = (p1 / c1) % w1,
+				 * 		y1 = trunc(p1 / (c1 * w1)),
+				 * 		x  = x0 - x1,
+				 * 		y  = y0 - y1
+				 * so {
+				 * -> p1 / c1 = x1 + y1 * w1
+				 * -> p1 / c1 = (x0 - x) + (y0 - y) * w1
+				 * -> p1 / c1 = (((p0 / c0) % w0) - x) + (((p0 / c0) / w0 | 0) - y) * w1
+				 * -> p1 = c1 * ((((p0 / c0) % w0) - x) + (((p0 / c0) / w0 | 0) - y) * w1)
+				 * }
+				 * ```
+				*/
+				mask_intervals = intervals.map((px: number) => 4 * (((px / channels % width) - x) + ((px / (channels * width) | 0) - y) * w)) as Intervals,
 				rgba_buf = new Uint8Array(w * h * 4).fill(0)
-			for (const sub_arr of sliceIntervalsTypedSubarray(rgba_buf, mask_intervals)) sub_arr.fill(1)
+			for (const sub_arr of sliceIntervalsTypedSubarray(rgba_buf, mask_intervals)) sub_arr.fill(255)
 			mask.fromBuffer(rgba_buf, { x, y, width: w, height: h })
-			new_atlas_manager.entries[parseInt(id)] = mask
+			new_atlas_manager.entries[parseFloat(id)] = mask
 		}
 		return new_atlas_manager
 	}
@@ -233,7 +277,7 @@ export class JAtlasManager {
 				kind = "path"
 				data = clipmask.src_url!
 			}
-			new_jatlas_object.entries[parseInt(id)] = { ...clipmask.rect, kind, data }
+			new_jatlas_object.entries[parseFloat(id)] = { ...clipmask.rect, kind, data }
 		}
 		return new_jatlas_object
 	}
