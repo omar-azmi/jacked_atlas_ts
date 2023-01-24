@@ -1,5 +1,5 @@
 {
-	"source": "./base_image.jpg",
+	"source": "./source_image.jpg",
 	"entries": {
 		"0": {
 			"name": "juice",

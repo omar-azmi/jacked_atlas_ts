@@ -5,7 +5,7 @@ import { PackageJsonObject } from "https://deno.land/x/dnt@0.31.0/lib/types.ts"
 
 /** use:
  * - `"/"` for localhost (default if unspecified in `Deno.args`)
- * - `"/kitchensink_ts/"` for github pages
+ * - `"/jacked_atlas_ts/"` for github pages
 */
 const site_root = Deno.args[0] ?? "/"
 const npm_dir = "./npm/"

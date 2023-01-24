@@ -1,0 +1,35 @@
+name: github repo continuous integration
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/readme.md"
+      - "src/license.md"
+
+permissions:
+  contents: write
+
+jobs:
+  update-readme:
+    runs-on: ubuntu-latest
+    steps:
+      - name: clone repo
+        uses: actions/checkout@v3
+
+      - name: copy readme.md
+        run: cp "src/readme.md" ".github/readme.md"
+
+      - name: copy license.md
+        run: cp "src/license.md" "license.md"
+
+      - name: commit additions
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add --force ".github/readme.md" "license.md"
+          git commit -m "update file via \"github-repo-ci.yml\""
+          git push
+          git rm --cached ".github/readme.md" "license.md"
+          git push
