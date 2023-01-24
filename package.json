@@ -1,0 +1,38 @@
+{
+  "module": "./esm/mod.js",
+  "types": "./types/mod.d.ts",
+  "name": "jacked_atlas_ts",
+  "version": "0.1.2",
+  "description": "a tool for extracting region of interest based on a bitmap mask",
+  "author": "Omar Azmi",
+  "license": "Lulz plz don't steal yet",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/omar-azmi/jacked_atlas_ts.git"
+  },
+  "bugs": {
+    "url": "https://github.com/omar-azmi/jacked_atlas_ts/issues"
+  },
+  "devDependencies": {
+    "@types/node": "^18.11.9",
+    "typescript": "^4.9.3",
+    "typedoc": "^0.23.21",
+    "esbuild": "^0.15.14"
+  },
+  "scripts": {
+    "build-docs": "npx typedoc",
+    "build-dist": "npm run build-esm && npm run build-esm-minify && npm run build-iife && npm run build-iife-minify",
+    "build-esm": "npx esbuild \"./src/mod.ts\" --bundle --format=esm --outfile=\"./dist/jacked_atlas_ts.esm.js\"",
+    "build-esm-minify": "npx esbuild \"./src/mod.ts\" --bundle --minify --format=esm --outfile=\"./dist/jacked_atlas_ts.esm.min.js\"",
+    "build-iife": "npx esbuild \"./src/mod.ts\" --bundle --format=iife --outfile=\"./dist/jacked_atlas_ts.iife.js\"",
+    "build-iife-minify": "npx esbuild \"./src/mod.ts\" --bundle --minify --format=iife --outfile=\"./dist/jacked_atlas_ts.iife.min.js\""
+  },
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./types/mod.d.ts",
+        "default": "./esm/mod.js"
+      }
+    }
+  }
+}

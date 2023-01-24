@@ -1,0 +1,1 @@
+{"$schema":"https://typedoc.org/schema.json","entryPoints":["./src/mod.ts"],"out":"./docs/","readme":"./src/readme.md","sidebarLinks":{"github":"https://github.com/omar-azmi/jacked_atlas_ts","readme":"/jacked_atlas_ts/"},"skipErrorChecking":true,"githubPages":true,"includeVersion":true,"sort":["source-order","required-first","kind"]}
