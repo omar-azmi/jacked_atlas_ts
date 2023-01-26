@@ -166,6 +166,28 @@ export class ClipMask {
 				return offcanvas
 			})
 	}
+
+	static fromObject = (jatlas_entry: JAtlasEntry): ClipMask => {
+		const { data, x, y, width, height } = jatlas_entry
+		return new ClipMask(data, { x, y, width, height })
+	}
+
+	static fromJSON = (jatlas_entry_json_text: string): ClipMask => ClipMask.fromObject(JSON.parse(jatlas_entry_json_text) as JAtlasEntry)
+
+	toObject = async (): Promise<JAtlasEntry> => {
+		const { name, src } = this.meta as { name?: string, src?: URIString }
+		let kind: JAtlasEntry["kind"], data: JAtlasEntry["data"]
+		if (this.data) {
+			kind = "data"
+			data = await blobToBase64(this.data)
+		} else {
+			kind = "http"
+			data = src!
+		}
+		return { ...this.rect, kind, data, name }
+	}
+
+	toJSON = async (): Promise<string> => JSON.stringify(await this.toObject())
 }
 
 /** represents a function that takes 4 or less arguments as each pixel's color (0 to 255), and spits out a `float` id for the provided color <br>
@@ -201,15 +223,14 @@ export class JAtlasManager {
 		return this.imgloaded
 	}
 
-	addEntry = (entry: JAtlasEntry | string, id?: number) => {
-		if (typeof entry === "string") entry = JSON.parse(entry) as JAtlasEntry
-		const
-			{ x, y, width, height, kind, data } = entry,
-			mask = new ClipMask(data, { x, y, width, height })
+	addEntry = (entry: ClipMask | JAtlasEntry | string, id?: number) => {
+		const mask: ClipMask = typeof entry === "string" ? ClipMask.fromJSON(entry) :
+			entry instanceof ClipMask ? entry :
+				ClipMask.fromObject(entry)
 		this.entries[id ?? Date.now() % 1000_000_000] = mask
 	}
 
-	addEntries = (entries: { [id: number]: JAtlasEntry }) => {
+	addEntries = (entries: { [id: number]: ClipMask | JAtlasEntry | string }) => {
 		for (const [id, entry] of Object.entries(entries)) this.addEntry(entry, parseInt(id))
 	}
 
@@ -306,17 +327,13 @@ export class JAtlasManager {
 			source: this.source.toString(),
 			entries: {}
 		}
-		for (const [id, mask] of Object.entries(this.entries)) {
-			let kind: JAtlasEntry["kind"], data: JAtlasEntry["data"]
-			if (mask.data) {
-				kind = "data"
-				data = await blobToBase64(mask.data)
-			} else {
-				kind = "https"
-				data = mask.meta.src!
-			}
-			new_jatlas_object.entries[parseFloat(id)] = { ...mask.rect, kind, data }
-		}
+		await Promise.all(Object.entries(this.entries).map(kv => {
+			const [id, mask] = kv
+			return mask.toObject()
+				.then((mask_obj) => {
+					new_jatlas_object.entries[parseFloat(id)] = mask_obj
+				})
+		}))
 		return new_jatlas_object
 	}
 
