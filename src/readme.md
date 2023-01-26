@@ -27,3 +27,14 @@ the source is written in `Typescript` and the documentation is generated using `
 | input mask rect coordinates | `let rect = { x: 185, y: 184, width: 172, height: 258 }` |
 | output extracted image | <img src="../examples/1/extracts/juice.png" alt="extracted juice" width="100"> |
 
+
+### TODO
+- improve name consistency, especially the loadImage function of JAtlasManager and JAtlasManager.source 
+- make more `Promise<void>` functions return their important value rather than just signallying `undefined`
+- make an interactive HScroller
+- design uncaching/deleting of `ClipMask.data_blob`
+- turn `ClipMask` or `JAtlas` into a recursive/nested `JAtlasManager`, with the clipped parent image always being the `source` of the child/nested `JAtlas` clip
+- for web supported MIME image formats, don't put the MIME-text inside of `JAtlas.kind`, but rather keep it prepended to `JAtlas.data`, and introduce `JAtlas.kind = "mime" | "native" | "uri" | "data_uri" | "base64" | etc...` for natively supported web browser images
+- use `idat_codec_ts` to encode 1bit png clipmasks into `JAtlas.data`, because browsers are too stupid to realize the compressibility of bit-data. although webp might already do that, but the native webp encoding is not lossless, nor can you set an option for it to become lossless. But I have yet to see an artifacact from the lossy compression of webp, unlike jpg, where it was immediately clear at 75% quality encoding
+
+

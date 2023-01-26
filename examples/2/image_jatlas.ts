@@ -16,7 +16,7 @@
  * in general, you would want to keep `RGBA = 0x000000FF` (or `id = 0`) for the background
 */
 
-import { downloadBuffer } from "https://deno.land/x/kitchensink_ts@v0.5.5/browser.ts"
+import { downloadBuffer } from "https://deno.land/x/kitchensink_ts@v0.5.6/browser.ts"
 import { ClippedImage, HorizontalImageScroller, JAtlasManager } from "../../src/mod.ts"
 
 const word_indexing_func = (r: number, g: number, b: number, a: number) => a === 0 ? 0 : (255 - a) / 100 + b * (2 ** 0) + g * (2 ** 8) + r * (2 ** 16)

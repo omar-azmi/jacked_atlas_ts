@@ -1,7 +1,7 @@
-import { blobToBase64 } from "https://deno.land/x/kitchensink_ts@v0.5.5/browser.ts"
-import { Base64ImageHeader, Base64ImageString, ImageMIMEType, constructImageData, getBase64ImageBody, getBase64ImageHeader, isBase64Image } from "https://deno.land/x/kitchensink_ts@v0.5.5/image.ts"
-import { Rect, SimpleImageData } from "https://deno.land/x/kitchensink_ts@v0.5.5/struct.ts"
-import { Intervals, sliceIntervalsTypedSubarray } from "https://deno.land/x/kitchensink_ts@v0.5.5/typedbuffer.ts"
+import { blobToBase64 } from "https://deno.land/x/kitchensink_ts@v0.5.6/browser.ts"
+import { Base64ImageString, ImageMIMEType, constructImageData, isBase64Image } from "https://deno.land/x/kitchensink_ts@v0.5.6/image.ts"
+import { Rect, SimpleImageData } from "https://deno.land/x/kitchensink_ts@v0.5.6/struct.ts"
+import { Intervals, sliceIntervalsTypedSubarray } from "https://deno.land/x/kitchensink_ts@v0.5.6/typedbuffer.ts"
 
 /** TODO:
  * - recursive/treelike/nested clipmasks or jatlas, where the parent `JAtlasEntry` can be used as the `source` for the child `entries`
@@ -9,6 +9,8 @@ import { Intervals, sliceIntervalsTypedSubarray } from "https://deno.land/x/kitc
 const DEBUG = true
 
 type FilePath = string
+type URIType = "data" | "file" | "http" | "https"
+type URIString = string
 
 export interface JAtlasEntry {
 	name?: string
@@ -16,13 +18,33 @@ export interface JAtlasEntry {
 	y: number
 	width: number
 	height: number
-	kind: Base64ImageHeader | "path" | "H" | "V" | "P" | "Z"
-	data: string
+	/** specify the URI scheme used by the `data` <br>
+	 * see {@link https://en.wikipedia.org/wiki/List_of_URI_schemes} for a list of common URI schemes, <br>
+	 * but practically speaking, there are only three URI schemes that can be decoded as images of the mask:
+	 * - `"data"`, for instance: `"data:image/webp;base64,UklGRqQDAA..."`
+	 * - `"file"`, for instance: `"file://homepc/C:/users/me/downloads/..."` or `"file:///D:/media%20backup/pictures/..."`
+	 * - `"http"` or `"https"`, for instance: `"https://en.wikipedia.org/static/images/icons/wikipedia.png"`
+	*/
+	kind: URIType | "H" | "V" | "P" | "Z"
+	/** specify the URI payload of the image data <br>
+	 * the following are valid `kind` and `data` pairs:
+	 * | kind | data |
+	 * | ---- | ---- |
+	 * | "data" | "data:image/png;base64,iVBORw0KGg..." |
+	 * | "data" | "data:image/webp;base64,UklGRqQDAA..." |
+	 * | "file" | "file:///D:/media%20backup/pictures/..." |
+	 * | "http" | "https://en.wikipedia.org/static/images/icons/wikipedia.png" |
+	*/
+	data: URIString
 }
 
 export interface JAtlas {
-	/** image source to apply this atlas onto */
-	source: FilePath | Base64ImageString
+	/** specify the URI scheme used by the `source` <br>
+	 * see {@link JAtlasEntry.kind}
+	*/
+	kind: URIType
+	/** image source to apply this atlas's entries onto */
+	source: URIString
 	/** atlas entries of the source */
 	entries: { [id: number]: JAtlasEntry }
 }
@@ -35,55 +57,102 @@ clipmask_offctx.imageSmoothingEnabled = false
 
 export class ClipMask {
 	rect: Rect
-	/** file path of the source image, or base64 data uri <br>
-	 * if a base64 data uri is provided, then once it has been turned trasnparent and converted into `this.data_uri`, `this.src_url` will be deleted <br>
-	 * at any given time, one of either `this.src_url` or `this.data_blob` will be present
-	*/
-	src_url?: FilePath | Base64ImageString
-	data_blob?: Blob
+	data?: Blob
+	loaded!: Promise<this>
+	private resolve_loaded!: (self: this) => void
+	private reject_loaded!: (reason?: any) => void
+	/** encapsulate any meta data you desire. this property is not utilized by this class at all */
+	meta: { string?: any } = {}
 
-	constructor(src_url?: string, rect?: Partial<Rect>) {
-		this.src_url = src_url
+	constructor(data?: Blob, rect?: Partial<Rect>) {
+		this.reset_loaded()
 		this.rect = { x: 0, y: 0, width: 1, height: 1, ...rect }
+		if (data) {
+			this.data = data
+			this.resolve_loaded(this)
+		}
 	}
 
-	/** load an image from a local path or url, such as: `"./bitmasks/juice.png"` or `"https://picsum.photos/200/300?grayscale"` */
-	fromURL = (src_url: string, rect: Partial<Rect>) => {
-		this.src_url = src_url
-		const img = new Image()
-		img.src = src_url
-		return img.decode()
-			.then(() => {
-				const { width: w, height: h } = img
-				rect.width = w
-				rect.height = h
-				clipmask_offcanvas.width = w
-				clipmask_offcanvas.height = h
-				clipmask_offctx.globalCompositeOperation = "copy"
-				clipmask_offctx.drawImage(img, 0, 0)
-				const { data } = clipmask_offctx.getImageData(0, 0, w, h)
-				return this.fromBuffer(data, rect as { x?: number, y?: number, width: number, height: number })
-			})
-			.catch(() => { throw new Error(`failed to load url:\n\t${src_url}`) })
+	private reset_loaded = (): void => {
+		this.loaded = new Promise<this>((resolve, reject) => {
+			this.resolve_loaded = resolve
+			this.reject_loaded = reject
+		})
 	}
 
 	/** load an image from a string of data uri, such as: `"data:image/gif;base64,R0l..."` */
-	fromDataURI = (data_uri: string, rect: Partial<Rect>) => {
-		return this.fromURL(data_uri, rect)
+	loadDataURI = (data_uri: string, rect?: Partial<Rect>) => this.loadURL(data_uri, rect)
+
+	/** load an image from a local path or url, such as: `"./bitmasks/juice.png"` or `"https://picsum.photos/200/300?grayscale"` */
+	loadURL = (src_url: string, rect?: Partial<Rect>) => {
+		const img = new Image()
+		img.src = src_url
+		rect ??= {}
+		return img.decode()
+			.then(() => this.loadImage(img, rect))
+			.catch((reason) => { throw new Error(`failed to load url:\n\t${src_url}\nreason:\n\t${reason}`) })
+	}
+
+	/** load from a `CanvasImageSource` */
+	loadImage = (src_img: CanvasImageSource, rect?: Partial<Rect>) => {
+		const { width: w, height: h } = src_img as Exclude<CanvasImageSource, HTMLOrSVGImageElement>
+		rect!.width = w
+		rect!.height = h
+		clipmask_offcanvas.width = w
+		clipmask_offcanvas.height = h
+		clipmask_offctx.globalCompositeOperation = "copy"
+		clipmask_offctx.drawImage(src_img, 0, 0)
+		const { data } = clipmask_offctx.getImageData(0, 0, w, h)
+		return this.loadBuffer(data, rect)
 	}
 
 	/** load an image from  a `Uint8Array` of RGBA pixels. the width and height must be defined in the passed `rect` */
-	fromBuffer = async (buf: Uint8Array | Uint8ClampedArray, rect: { x?: number, y?: number, width: number, height: number }): Promise<void> => {
-		rect.x ??= 0
-		rect.y ??= 0
-		this.rect = rect as Rect
-		clipmask_offcanvas.width = rect.width
-		clipmask_offcanvas.height = rect.height
+	loadBuffer = async (buf: Uint8Array | Uint8ClampedArray, rect?: Partial<Rect>): Promise<this> => {
+		this.reset_loaded()
+		this.rect = { ...this.rect, ...rect }
+		clipmask_offcanvas.width = this.rect.width
+		clipmask_offcanvas.height = this.rect.height
 		clipmask_offctx.globalCompositeOperation = "copy"
-		clipmask_offctx.putImageData(new ImageData(ClipMask.turnTransparent(buf), rect.width, rect.height), 0, 0)
-		this.data_blob = await clipmask_offcanvas.convertToBlob({ type: clipmask_data_format })
-		if (isBase64Image(this.src_url)) this.src_url = undefined
-		return
+		clipmask_offctx.putImageData(
+			new ImageData(
+				ClipMask.turnTransparent(buf),
+				this.rect.width,
+				this.rect.height
+			), 0, 0
+		)
+		this.data = await clipmask_offcanvas.convertToBlob({ type: clipmask_data_format })
+		this.resolve_loaded(this)
+		return this
+	}
+
+	static fromAuto = async (mask_src: string | Uint8Array | Uint8ClampedArray | CanvasImageSource | Blob, rect?: Partial<Rect>) => {
+		return await (
+			typeof mask_src === "string" ? this.fromURL(mask_src, rect) :
+				mask_src instanceof Blob ? new this(mask_src, rect) :
+					mask_src instanceof Uint8Array || mask_src instanceof Uint8ClampedArray ? this.fromBuffer(mask_src, rect) :
+						this.fromImage(mask_src, rect)
+		)
+	}
+
+	/** static version of {@link ClipMask.loadDataURI} */
+	static fromDataURI = (data_uri: string, rect?: Partial<Rect>): Promise<ClipMask> => this.fromURL(data_uri, rect)
+
+	/** static version of {@link ClipMask.loadURL} */
+	static fromURL = (src_url: string, rect?: Partial<Rect>): Promise<ClipMask> => {
+		const new_mask = new this(undefined, rect)
+		return new_mask.loadURL(src_url, rect)
+	}
+
+	/** static version of {@link ClipMask.loadImage} */
+	static fromImage = (src_img: CanvasImageSource, rect?: Partial<Rect>): Promise<ClipMask> => {
+		const new_mask = new this(undefined, rect)
+		return new_mask.loadImage(src_img, rect)
+	}
+
+	/** static version of {@link ClipMask.loadBuffer} */
+	static fromBuffer = (buf: Uint8Array | Uint8ClampedArray, rect?: Partial<Rect>): Promise<ClipMask> => {
+		const new_mask = new this(undefined, rect)
+		return new_mask.loadBuffer(buf, rect)
 	}
 
 	/** turn the provided buffer of pixels to become transparent where a black pixel is present */
@@ -93,11 +162,15 @@ export class ClipMask {
 		return new Uint8ClampedArray(buf.buffer)
 	}
 
-	clearDataBlob = () => this.data_blob = undefined
+	clearDataBlob = () => {
+		this.data = undefined
+		this.reset_loaded()
+	}
 
-	clipImage = async (img: CanvasImageSource): Promise<OffscreenCanvas> => {
-		if (this.data_blob === undefined) await this.fromURL(this.src_url!, this.rect)
-		return createImageBitmap(this.data_blob!).then(mask_img_bitmap => {
+	/** clip/mask an image using this `ClipMask`'s `data` bitmap image blob */
+	clipImage = async (img: CanvasImageSource, mask_fallback_src_url?: string): Promise<OffscreenCanvas> => {
+		if (this.data === undefined) await this.loadURL(mask_fallback_src_url!, this.rect)
+		return createImageBitmap(this.data!).then(mask_img_bitmap => {
 			clipmask_offcanvas.width = this.rect.width
 			clipmask_offcanvas.height = this.rect.height
 			clipmask_offctx.globalCompositeOperation = "copy"
@@ -105,6 +178,15 @@ export class ClipMask {
 			clipmask_offctx.globalCompositeOperation = "source-in"
 			clipmask_offctx.drawImage(img, -this.rect.x, -this.rect.y)
 			return clipmask_offcanvas
+		})
+	}
+
+	static clipImageUsing = async (img: CanvasImageSource, mask_src: string | Uint8Array | Uint8ClampedArray | CanvasImageSource | Blob, rect?: Partial<Rect>): Promise<OffscreenCanvas> => {
+		let new_mask: ClipMask = await ClipMask.fromAuto(mask_src)
+		return new_mask.clipImage(img).then((offcanvas) => {
+			new_mask.clearDataBlob();
+			(new_mask as unknown) = undefined
+			return offcanvas
 		})
 	}
 }
@@ -146,8 +228,9 @@ export class JAtlasManager {
 		if (typeof entry === "string") entry = JSON.parse(entry) as JAtlasEntry
 		const
 			{ x, y, width, height, kind, data } = entry,
-			mask = new ClipMask(kind + data, { x, y, width, height })
+			mask = new ClipMask(undefined, { x, y, width, height })
 		this.entries[id ?? Date.now() % 1000_000_000] = mask
+		mask.loadURL(data)
 	}
 
 	addEntries = (entries: { [id: number]: JAtlasEntry }) => {
@@ -203,7 +286,7 @@ export class JAtlasManager {
 		// convert flat index of image data to (x, y) coordinates and find the bounding box of each id
 		const
 			new_atlas_manager = new this(img_src_url),
-			mask_from_buffer_promises: Promise<void>[] = []
+			mask_from_buffer_promises: Promise<void | ClipMask>[] = []
 		for (const [id, intervals] of Object.entries(id_pixel_intervals)) {
 			let [min_x, min_y, max_x, max_y] = [width, height, 0, 0]
 			for (let i = 0, len = intervals.length; i < len; i += 2) {
@@ -252,7 +335,7 @@ export class JAtlasManager {
 				mask_intervals = intervals.map((px: number) => 4 * (((px / channels % width) - x) + ((px / (channels * width) | 0) - y) * w)) as Intervals,
 				rgba_buf = new Uint8Array(w * h * 4).fill(0)
 			for (const sub_arr of sliceIntervalsTypedSubarray(rgba_buf, mask_intervals)) sub_arr.fill(255)
-			mask_from_buffer_promises.push(mask.fromBuffer(rgba_buf, { x, y, width: w, height: h }))
+			mask_from_buffer_promises.push(mask.loadBuffer(rgba_buf, { x, y, width: w, height: h }))
 			new_atlas_manager.entries[parseFloat(id)] = mask
 		}
 		if (onload_callback) Promise.all(mask_from_buffer_promises).then(() => onload_callback(new_atlas_manager))
@@ -268,19 +351,19 @@ export class JAtlasManager {
 			source: this.source.toString(),
 			entries: {}
 		}
-		for (const [id, clipmask] of Object.entries(this.entries)) {
+		for (const [id, mask] of Object.entries(this.entries)) {
 			let kind: JAtlasEntry["kind"], data: JAtlasEntry["data"]
-			if (clipmask.data_blob) {
-				kind = "data:" + clipmask.data_blob.type + ";base64," as Base64ImageHeader
-				data = await blobToBase64(clipmask.data_blob)
-			} else if (isBase64Image(clipmask.src_url!)) {
-				kind = getBase64ImageHeader(clipmask.src_url!)
-				data = getBase64ImageBody(clipmask.src_url!)
+			if (mask.data) {
+				kind = "data"
+				data = await blobToBase64(mask.data)
+			} else if (isBase64Image(mask.meta.src!)) {
+				kind = "data"
+				data = mask.meta.src!
 			} else {
-				kind = "path"
-				data = clipmask.src_url!
+				kind = "https"
+				data = mask.meta.src!
 			}
-			new_jatlas_object.entries[parseFloat(id)] = { ...clipmask.rect, kind, data }
+			new_jatlas_object.entries[parseFloat(id)] = { ...mask.rect, kind, data }
 		}
 		return new_jatlas_object
 	}
