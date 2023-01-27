@@ -312,6 +312,7 @@ export class JAtlasManager {
 		const
 			new_atlas_manager = new this(img_src_url),
 			mask_from_buffer_promises: Promise<void | ClipMask>[] = []
+		new_atlas_manager.reset_entries_loaded()
 		for (const [id, intervals] of Object.entries(id_pixel_intervals)) {
 			let [min_x, min_y, max_x, max_y] = [width, height, 0, 0]
 			for (let i = 0, len = intervals.length; i < len; i += 2) {
@@ -340,7 +341,7 @@ export class JAtlasManager {
 				rgba_buf = new Uint8Array(w * h * 4).fill(0)
 			for (const sub_arr of sliceIntervalsTypedSubarray(rgba_buf, mask_intervals)) sub_arr.fill(255)
 			mask_from_buffer_promises.push(mask.setData(rgba_buf, { x, y, width: w, height: h }))
-			new_atlas_manager.entries[parseFloat(id)] = mask
+			new_atlas_manager.addEntry(mask, parseFloat(id))
 		}
 		Promise.all(mask_from_buffer_promises)
 			.then(() => new_atlas_manager.resolve_entries_loaded())
