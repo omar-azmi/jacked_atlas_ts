@@ -58,11 +58,17 @@ bg_ctx.imageSmoothingEnabled = false
 export class ClipMask {
 	rect: Rect
 	data?: Blob
-	loaded!: Promise<this>
-	private resolve_loaded!: (self: this) => void
-	private reject_loaded!: (reason?: any) => void
 	/** encapsulate any meta data you desire. this property is not utilized by this class at all */
 	meta: { string?: any } = {}
+	loaded!: Promise<this>
+	private resolve_loaded!: () => void
+	private reject_loaded!: (reason?: any) => void
+	private reset_loaded = (): void => {
+		this.loaded = new Promise<this>((resolve, reject) => {
+			this.resolve_loaded = () => resolve(this)
+			this.reject_loaded = reject
+		})
+	}
 
 	/**
 	 * @param mask_src a transparent bitmap image to be used as the mask. if this image is not already transparent, and equires transformation, use the static {@link ClipMask.asTransparent} method instead
@@ -108,15 +114,7 @@ export class ClipMask {
 		this.rect = { ...this.rect, ...rect }
 		return constructImageBlob(mask_src, this.rect.width, undefined, undefined, clipmask_toblob_options).then((blob) => {
 			this.data = blob
-			this.resolve_loaded(this)
-		})
-	}
-
-
-	private reset_loaded = (): void => {
-		this.loaded = new Promise<this>((resolve, reject) => {
-			this.resolve_loaded = resolve
-			this.reject_loaded = reject
+			this.resolve_loaded()
 		})
 	}
 
@@ -174,9 +172,14 @@ export class ClipMask {
 
 	static fromJSON = (jatlas_entry_json_text: string): ClipMask => ClipMask.fromObject(JSON.parse(jatlas_entry_json_text) as JAtlasEntry)
 
+	/** note: you will have to make sure from outside that `this.data` has been loaded by observing the `this.loaded` promise <br>
+	 * this function does not await for `this.loaded`, it acts on whatever's currently available at `this.data` <br>
+	*/
 	toObject = async (): Promise<JAtlasEntry> => {
 		const { name, src } = this.meta as { name?: string, src?: URIString }
 		let kind: JAtlasEntry["kind"], data: JAtlasEntry["data"]
+		// TIP: uncommenting the line below will make each call `toObject` wait for the data to load. however, one might never load any data (via `setData`), in which case `toObject` will wait forever
+		// await this.loaded
 		if (this.data) {
 			kind = "data"
 			data = await blobToBase64(this.data)
@@ -205,22 +208,47 @@ const default_id_numbering_func: IDNumberingFunc = (r, g, b, a) => a === 0 ? 0 :
 
 export class JAtlasManager {
 	source!: FilePath | Base64ImageString
-	entries: { [id: number]: ClipMask } = {}
-	imgloaded!: Promise<this["img"]>
-	img?: HTMLImageElement
-
-	constructor(src_url?: FilePath | Base64ImageString) {
-		if (src_url) this.loadImage(src_url)
+	private source_img?: HTMLImageElement
+	source_loaded!: Promise<this>
+	private resolve_source_loaded!: () => void
+	private reject_source_loaded!: (reason?: any) => void
+	private reset_source_loaded = (): void => {
+		this.source_loaded = new Promise<this>((resolve, reject) => {
+			this.resolve_source_loaded = () => resolve(this)
+			this.reject_source_loaded = reject
+		})
 	}
 
-	loadImage = (src_url: FilePath | Base64ImageString) => {
-		this.source = src_url
-		this.img = new Image()
-		this.img.src = src_url
-		this.imgloaded = this.img.decode()
-			.then(() => this.img)
-			.catch(() => { throw new Error(`failed to load url:\n\t${src_url}`) })
-		return this.imgloaded
+	entries: { [id: number]: ClipMask } = {}
+	entries_loaded!: Promise<this>
+	private resolve_entries_loaded!: () => void
+	private reject_entries_loaded!: (reason?: any) => void
+	private reset_entries_loaded = (): void => {
+		this.entries_loaded = new Promise<this>((resolve, reject) => {
+			this.resolve_entries_loaded = () => resolve(this)
+			this.reject_entries_loaded = reject
+		})
+	}
+
+	constructor(source_img?: FilePath | Base64ImageString) {
+		if (source_img) this.setSource(source_img)
+		else this.reset_source_loaded()
+		this.reset_entries_loaded()
+		this.resolve_entries_loaded()
+	}
+
+	setSource = (source_img: FilePath | Base64ImageString) => {
+		this.reset_source_loaded()
+		this.source = source_img
+		this.source_img = new Image()
+		this.source_img.src = source_img
+		this.source_img
+			.decode()
+			.then(() => {
+				this.resolve_source_loaded()
+			})
+			.catch(() => { throw new Error(`failed to load url:\n\t${source_img}`) })
+		return this.source_loaded
 	}
 
 	addEntry = (entry: ClipMask | JAtlasEntry | string, id?: number) => {
@@ -235,8 +263,8 @@ export class JAtlasManager {
 	}
 
 	getEntryImage = async (id: number): Promise<OffscreenCanvas> => {
-		await this.imgloaded
-		return this.entries[id].clipImage(this.img!)
+		await this.source_loaded
+		return this.entries[id].clipImage(this.source_img!)
 	}
 
 	static fromObject = (jatlas_object: JAtlas): JAtlasManager => {
@@ -249,16 +277,16 @@ export class JAtlasManager {
 
 	static fromURL = (json_url: FilePath): Promise<JAtlasManager> => fetch(json_url).then(async (response) => JAtlasManager.fromJSON(await response.text()))
 
-	static fromJAtlasImage = async (img: CanvasImageSource, img_src_url?: JAtlasManager["source"], id_numbering_func?: IDNumberingFunc, onload_callback?: (loaded_new_atlas_manager: JAtlasManager) => void) => {
+	static fromJAtlasImage = async (img: CanvasImageSource, img_src_url?: JAtlasManager["source"], id_numbering_func?: IDNumberingFunc) => {
 		// id_numbering_func(r, g, b, a) === 0 must always be dedicated to background if (r, g, b, a) is a background pixel color
 		// algorithm: we do a continuous horizontal scan line over img_data.data, then every horizontal index range of pixels of matching id is appended to a dictionary
 		// once scanline is over, we convert the flat indexes of the ranges into (x, y) coordinates, then we find their range's max and min x and y to get the left, right top, bottom
 		// bounding box or the rect of that particular id.
 		// using the bounding box rect, we can offset the flat indexes of the ranges to begin from the top left, and then we fill in (255, 255, 255 255) everywhere in the ranges subarray of the id on a mini imageData.data canvas
-		return this.fromJAtlasImageData<4>(await constructImageData(img), img_src_url, id_numbering_func, onload_callback)
+		return this.fromJAtlasImageData<4>(await constructImageData(img), img_src_url, id_numbering_func)
 	}
 
-	static fromJAtlasImageData = <Channels extends (1 | 2 | 3 | 4) = 4>(img_data: SimpleImageData, img_src_url?: JAtlasManager["source"], id_numbering_func?: IDNumberingFunc, onload_callback?: (loaded_new_atlas_manager: JAtlasManager) => void) => {
+	static fromJAtlasImageData = <Channels extends (1 | 2 | 3 | 4) = 4>(img_data: SimpleImageData, img_src_url?: JAtlasManager["source"], id_numbering_func?: IDNumberingFunc): JAtlasManager => {
 		id_numbering_func ??= default_id_numbering_func
 		const
 			{ width, height, data } = img_data,
@@ -314,7 +342,8 @@ export class JAtlasManager {
 			mask_from_buffer_promises.push(mask.setData(rgba_buf, { x, y, width: w, height: h }))
 			new_atlas_manager.entries[parseFloat(id)] = mask
 		}
-		if (onload_callback) Promise.all(mask_from_buffer_promises).then(() => onload_callback(new_atlas_manager))
+		Promise.all(mask_from_buffer_promises)
+			.then(() => new_atlas_manager.resolve_entries_loaded())
 		return new_atlas_manager
 	}
 
@@ -329,7 +358,8 @@ export class JAtlasManager {
 		}
 		await Promise.all(Object.entries(this.entries).map(kv => {
 			const [id, mask] = kv
-			return mask.toObject()
+			return mask.loaded
+				.then(loaded_mask => loaded_mask.toObject())
 				.then((mask_obj) => {
 					new_jatlas_object.entries[parseFloat(id)] = mask_obj
 				})

@@ -26,9 +26,10 @@ let
 	hscroller: HorizontalImageScroller = new HorizontalImageScroller(document.body, 1400, 600)
 img.onload = async () => {
 	let t0 = performance.now()
-	word_atlas_manager = await JAtlasManager.fromJAtlasImage(img, "./manuscript.jpg", word_indexing_func, (loaded_word_atlas_manager) => {
-		loaded_word_atlas_manager.toJSON().then((json_str) => downloadBuffer(json_str, "manuscript.jpg.jatlas.json", "text/json"))
-	})
+	word_atlas_manager = await JAtlasManager.fromJAtlasImage(img, "./manuscript.jpg", word_indexing_func)
+	word_atlas_manager.entries_loaded
+		.then((loaded_word_atlas_manager) => loaded_word_atlas_manager.toJSON())
+		.then((json_str) => downloadBuffer(json_str, "manuscript.jpg.jatlas.json", "text/json"))
 	let t1 = performance.now()
 	console.log(`${t1 - t0} ms`)
 	for (const id of Object.keys(word_atlas_manager.entries)) {
