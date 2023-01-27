@@ -1,5 +1,5 @@
 import { blobToBase64 } from "https://deno.land/x/kitchensink_ts@v0.5.7/browser.ts"
-import { Base64ImageString, ImageMIMEType, constructImageData, constructImageBlob, isBase64Image, coordinateTransformer, getBGCanvas, getBGCtx, AnyImageSource } from "https://deno.land/x/kitchensink_ts@v0.5.7/image.ts"
+import { AnyImageSource, Base64ImageString, constructImageBitmapSource, constructImageBlob, constructImageData, coordinateTransformer, getBGCanvas, getBGCtx } from "https://deno.land/x/kitchensink_ts@v0.5.7/image.ts"
 import { Rect, SimpleImageData } from "https://deno.land/x/kitchensink_ts@v0.5.7/struct.ts"
 import { Intervals, sliceIntervalsTypedSubarray } from "https://deno.land/x/kitchensink_ts@v0.5.7/typedbuffer.ts"
 
@@ -208,7 +208,7 @@ const default_id_numbering_func: IDNumberingFunc = (r, g, b, a) => a === 0 ? 0 :
 
 export class JAtlasManager {
 	source!: FilePath | Base64ImageString
-	private source_img?: HTMLImageElement
+	private source_bitmap?: ImageBitmap
 	source_loaded!: Promise<this>
 	private resolve_source_loaded!: () => void
 	private reject_source_loaded!: (reason?: any) => void
@@ -231,23 +231,25 @@ export class JAtlasManager {
 	}
 
 	constructor(source_img?: FilePath | Base64ImageString) {
-		if (source_img) this.setSource(source_img)
+		if (source_img) {
+			this.source = source_img
+			this.setSource(source_img)
+		}
 		else this.reset_source_loaded()
 		this.reset_entries_loaded()
 		this.resolve_entries_loaded()
 	}
 
-	setSource = (source_img: FilePath | Base64ImageString) => {
+	setSource = (source_img: AnyImageSource) => {
 		this.reset_source_loaded()
-		this.source = source_img
-		this.source_img = new Image()
-		this.source_img.src = source_img
-		this.source_img
-			.decode()
-			.then(() => {
+		if (typeof source_img === "string") this.source = source_img
+		constructImageBitmapSource(source_img)
+			.then(createImageBitmap)
+			.then((bitmap) => {
+				this.source_bitmap = bitmap
 				this.resolve_source_loaded()
 			})
-			.catch(() => { throw new Error(`failed to load url:\n\t${source_img}`) })
+			.catch(() => { throw new Error(`failed to load source image:\n\t${source_img}`) })
 		return this.source_loaded
 	}
 
@@ -264,7 +266,7 @@ export class JAtlasManager {
 
 	getEntryImage = async (id: number): Promise<OffscreenCanvas> => {
 		await this.source_loaded
-		return this.entries[id].clipImage(this.source_img!)
+		return this.entries[id].clipImage(this.source_bitmap!)
 	}
 
 	static fromObject = (jatlas_object: JAtlas): JAtlasManager => {
