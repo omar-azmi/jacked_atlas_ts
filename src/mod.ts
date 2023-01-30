@@ -25,11 +25,11 @@ export interface JAtlasEntry {
 	 * - `"file"`, for instance: `"file://homepc/C:/users/me/downloads/..."` or `"file:///D:/media%20backup/pictures/..."`
 	 * - `"http"` or `"https"`, for instance: `"https://en.wikipedia.org/static/images/icons/wikipedia.png"`
 	*/
-	kind: URIType | "H" | "V" | "P" | "Z"
+	format: URIType | "H" | "V" | "P" | "Z"
 	/** specify the URI payload of the image data <br>
-	 * the following are valid `kind` and `data` pairs:
-	 * | kind | data |
-	 * | ---- | ---- |
+	 * the following are valid `format` and `data` pairs:
+	 * | format | data |
+	 * | ------ | ---- |
 	 * | "data" | "data:image/png;base64,iVBORw0KGg..." |
 	 * | "data" | "data:image/webp;base64,UklGRqQDAA..." |
 	 * | "file" | "file:///D:/media%20backup/pictures/..." |
@@ -40,9 +40,9 @@ export interface JAtlasEntry {
 
 export interface JAtlas {
 	/** specify the URI scheme used by the `source` <br>
-	 * see {@link JAtlasEntry.kind}
+	 * see {@link JAtlasEntry.format}
 	*/
-	kind?: URIType
+	format?: URIType
 	/** image source to apply this atlas's entries onto */
 	source: URIString
 	/** atlas entries of the source */
@@ -177,17 +177,17 @@ export class ClipMask {
 	*/
 	toObject = async (): Promise<JAtlasEntry> => {
 		const { name, src } = this.meta as { name?: string, src?: URIString }
-		let kind: JAtlasEntry["kind"], data: JAtlasEntry["data"]
+		let format: JAtlasEntry["format"], data: JAtlasEntry["data"]
 		// TIP: uncommenting the line below will make each call `toObject` wait for the data to load. however, one might never load any data (via `setData`), in which case `toObject` will wait forever
 		// await this.loaded
 		if (this.data) {
-			kind = "data"
+			format = "data"
 			data = await blobToBase64(this.data)
 		} else {
-			kind = "http"
+			format = "http"
 			data = src!
 		}
-		return { ...this.rect, kind, data, name }
+		return { ...this.rect, format, data, name }
 	}
 
 	toJSON = async (): Promise<string> => JSON.stringify(await this.toObject())
