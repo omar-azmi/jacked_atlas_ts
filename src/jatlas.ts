@@ -161,11 +161,15 @@ export class JAtlasClip {
 	clipImageSprite = (img: CanvasImageSource): Sprite => {
 		const img_sprite = new Sprite()
 		this.clipImage(img)
-			.then((offcanvas) => img_sprite.setSource(offcanvas.transferToImageBitmap()))
+			.then((offcanvas) => {
+				img_sprite.setSource(offcanvas.transferToImageBitmap())
+			})
+			/*
 			.then((sprite) => {
 				const { width, height } = img_sprite.bitmap!
 				sprite.setConfig({ width, height })
 			})
+			*/
 		return img_sprite
 	}
 
@@ -289,6 +293,12 @@ export class JAtlasManager {
 	getEntryImage = async (id: number): Promise<OffscreenCanvas> => {
 		await this.source_loaded
 		return this.entries[id].clipImage(this.source_bitmap!)
+	}
+
+	getEntryImageSprite = (id: number): Sprite => {
+		// you must ensure `this.source_loaded` has been fulfilled
+		if(this.source_bitmap) return this.entries[id].clipImageSprite(this.source_bitmap)
+		console.error("\"this.source_bitmap\" and \"this.source_loaded\" have not been loaded")
 	}
 
 	static fromObject = (jatlas_object: JAtlasTop): JAtlasManager => {

@@ -56,10 +56,12 @@ export class Sprite {
 	private resolve_source_loaded!: () => void
 	private reject_source_loaded!: (reason?: any) => void
 	private reset_source_loaded = (): void => {
-		this.source_loaded = new Promise<this>((resolve, reject) => {
-			this.resolve_source_loaded = () => resolve(this)
-			this.reject_source_loaded = reject
-		})
+		if (this.source_loaded === undefined) {
+			this.source_loaded = new Promise<this>((resolve, reject) => {
+				this.resolve_source_loaded = () => resolve(this)
+				this.reject_source_loaded = reject
+			})
+		}
 	}
 
 	setSource = (source_img: AnyImageSource) => {
@@ -90,9 +92,9 @@ export class Sprite {
 
 	constructor(config?: Partial<SpriteCoordsObj>) {
 		const { src, ...coords_config } = config ?? {}
-		this.setConfig(coords_config)
 		if (src) this.setSource(src)
 		else this.reset_source_loaded()
+		this.setConfig(coords_config)
 	}
 
 	draw = (ctx: Ctx2D, ...coords: Partial<SpriteCoords>) => {
