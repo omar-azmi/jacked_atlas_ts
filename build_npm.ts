@@ -9,7 +9,7 @@ import { PackageJsonObject } from "https://deno.land/x/dnt@0.31.0/lib/types.ts"
 */
 const site_root = Deno.args[0] ?? "/"
 const npm_dir = "./npm/"
-const main_entrypoint = "./src/mod.ts"
+const main_entrypoint: string = "./src/mod.ts"
 const sub_entrypoints: string[] = []
 const tsconfig = {
 	"$schema": "https://json.schemastore.org/tsconfig",
