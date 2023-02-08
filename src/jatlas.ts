@@ -1,4 +1,4 @@
-import { AnyImageSource, Base64ImageString, Intervals, Rect, SimpleImageData, blobToBase64, constructImageBitmapSource, constructImageBlob, constructImageData, coordinateTransformer, getBGCanvas, getBGCtx, sliceIntervalsTypedSubarray } from "./deps.ts"
+import { AnyImageSource, Base64ImageString, ImageBlob, Intervals, Rect, SimpleImageData, blobToBase64, constructImageBitmapSource, constructImageBlob, constructImageData, coordinateTransformer, getBGCanvas, getBGCtx, sliceIntervalsTypedSubarray } from "./deps.ts"
 import { Sprite } from "./sprite.ts"
 
 type FilePath = string
@@ -213,7 +213,19 @@ export class JAtlasClip {
 */
 export type IDNumberingFunc = (r: number, g: number, b: number, a: number) => number
 
-const default_id_numbering_func: IDNumberingFunc = (r, g, b, a) => a === 0 ? 0 : (255 - a) / 100 + b * (2 ** 0) + g * (2 ** 8) + r * (2 ** 16)
+const default_id_numbering_func: IDNumberingFunc = (r, g, b, a) => a === 0 ? 0 : (255 - (a >= 156 ? a : 156)) / 100 + b * (2 ** 0) + g * (2 ** 8) + r * (2 ** 16)
+
+export type IDColoringFunc = (id: number) => [r: number, g: number, b: number, a: number]
+
+const default_id_coloring_func: IDColoringFunc = (id) => {
+	if (id === 0) return [0, 0, 0, 0]
+	return [
+		id / 2 ** 16 | 0,
+		(id % 2 ** 16) / 2 ** 8 | 0,
+		(id % 2 ** 8) / 2 ** 0 | 0,
+		255 - (id % 2 ** 0) * 100 | 0,
+	]
+}
 
 export class JAtlasManager {
 	source!: FilePath | Base64ImageString
@@ -360,9 +372,45 @@ export class JAtlasManager {
 		return new_atlas_manager
 	}
 
-	/** TODO
-	toJAtlasImage = () => {}
-	*/
+	toJAtlasImage = async (id_coloring_func?: IDColoringFunc, width?: number, height?: number): ImageBlob => {
+		id_coloring_func ??= default_id_coloring_func
+		if (this.source_bitmap) {
+			width = this.source_bitmap.width
+			height = this.source_bitmap.height
+		}
+		const
+			canvas = new OffscreenCanvas(width!, height!),
+			ctx = canvas.getContext("2d") as OffscreenCanvasRenderingContext2D,
+			queued_drawings: Promise<void>[] = []
+		ctx.globalCompositeOperation = "source-over"
+		ctx.imageSmoothingEnabled = false
+		for (const [id, mask] of Object.entries(this.entries)) {
+			queued_drawings.push(
+				mask.loaded
+					.then(m => constructImageData(m.data!))
+					.then(mask_img_data => {
+						const
+							{ width: w, height: h, data } = mask_img_data,
+							color = id_coloring_func!(parseFloat(id))
+						console.log(color, mask.rect.x, mask.rect.y, w, h)
+						for (let i = 0, len = data.length; i < len; i += 4) {
+							if (data[i] + data[i + 1] + data[i + 2] > 0) {
+								data[i] = color[0]
+								data[i + 1] = color[1]
+								data[i + 2] = color[2]
+								data[i + 3] = color[3]
+							} else data[i + 3] = 0
+						}
+						return createImageBitmap(mask_img_data)
+					})
+					.then((bitmap) => {
+						ctx.drawImage(bitmap, mask.rect.x, mask.rect.y)
+					})
+			)
+		}
+		await Promise.all(queued_drawings)
+		return canvas.convertToBlob({ type: "image/png" })
+	}
 
 	toObject = async (): Promise<JAtlasTop> => {
 		const new_jatlas_object: JAtlasTop = {
