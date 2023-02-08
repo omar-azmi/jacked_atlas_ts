@@ -1,4 +1,4 @@
-import { AnyImageSource, Base64ImageString, ImageBlob, Intervals, Rect, SimpleImageData, blobToBase64, constructImageBitmapSource, constructImageBlob, constructImageData, coordinateTransformer, getBGCanvas, getBGCtx, sliceIntervalsTypedSubarray } from "./deps.ts"
+import { AnyImageSource, Base64ImageString, ImageBlob, Intervals, Rect, SimpleImageData, blobToBase64, constructImageBitmapSource, constructImageBlob, constructImageData, coordinateTransformer, getBGCanvas, getBGCtx, sliceIntervalsTypedSubarray, rgbaToHex } from "./deps.ts"
 import { Sprite } from "./sprite.ts"
 
 type FilePath = string
@@ -387,24 +387,24 @@ export class JAtlasManager {
 		for (const [id, mask] of Object.entries(this.entries)) {
 			queued_drawings.push(
 				mask.loaded
-					.then(m => constructImageData(m.data!))
-					.then(mask_img_data => {
+					.then(async (m) => {
 						const
-							{ width: w, height: h, data } = mask_img_data,
-							color = id_coloring_func!(parseFloat(id))
-						console.log(color, mask.rect.x, mask.rect.y, w, h)
-						for (let i = 0, len = data.length; i < len; i += 4) {
-							if (data[i] + data[i + 1] + data[i + 2] > 0) {
-								data[i] = color[0]
-								data[i + 1] = color[1]
-								data[i + 2] = color[2]
-								data[i + 3] = color[3]
-							} else data[i + 3] = 0
-						}
-						return createImageBitmap(mask_img_data)
-					})
-					.then((bitmap) => {
-						ctx.drawImage(bitmap, mask.rect.x, mask.rect.y)
+							mask_img_bitmap = await createImageBitmap(m.data!),
+							{ width: w, height: h } = m.rect,
+							color = rgbaToHex(id_coloring_func!(parseFloat(id)))
+						bg_canvas.width = w
+						bg_canvas.height = h
+						bg_ctx.resetTransform()
+						bg_ctx.globalCompositeOperation = "copy"
+						bg_ctx.drawImage(mask_img_bitmap, 0, 0)
+						bg_ctx.globalCompositeOperation = "source-in"
+						bg_ctx.fillStyle = color
+						bg_ctx.fillRect(0, 0, w, h)
+						ctx.drawImage(
+							bg_canvas.transferToImageBitmap(),
+							m.rect.x,
+							m.rect.y
+						)
 					})
 			)
 		}

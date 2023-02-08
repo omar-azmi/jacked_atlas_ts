@@ -6,3 +6,7 @@ export { UnitInterval } from "https://deno.land/x/kitchensink_ts@v0.5.7/typedefs
 
 export type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
 
+export const rgbaToHex = (rgba: [r: number, g: number, b: number, a: number]) => "#" + rgba.map(x => {
+	const hex = x.toString(16)
+	return hex.length === 2 ? hex : "0" + hex
+}).join("")

@@ -1,6 +1,6 @@
 {
 	"name": "jacked_atlas_ts",
-	"version": "0.1.4",
+	"version": "0.1.5",
 	"description": "a tool for extracting region of interest based on a bitmap mask",
 	"author": "Omar Azmi",
 	"license": "Lulz plz don't steal yet",
