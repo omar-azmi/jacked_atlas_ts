@@ -4,7 +4,7 @@
 <head>
 	<meta charset="utf-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-	<title>example 5: grid of images, with dynamic loading</title>
+	<title>example 6: loading an atlas image via json</title>
 	<script>
 		globalThis.addEventListener("DOMContentLoaded", async () => {
 			const { image_pool, popupCanvas, getBGCanvas, getBGCtx } = await import("./index.ts")
@@ -29,21 +29,9 @@
 			}
 			const $ = (query) => document.querySelector(query)
 
-
-			setTimeout(() => {
-				popupCanvas(getBGCanvas(), 30)
-			}, 3000)
-
-			setTimeout(() => {
-				image_pool.set("juice", {
-					source: {
-						x: 185,
-						y: 184,
-						width: 172,
-						height: 258,
-					}
-				})
-			}, 8000)
+			popupCanvas(getBGCanvas(), 30)
+			setTimeout(() => { image_pool.get("0") }, 4000)
+			setTimeout(() => { image_pool.get("1") }, 8000)
 
 			Object.assign(globalThis, { image_pool, getBGCanvas, getBGCtx })
 		})

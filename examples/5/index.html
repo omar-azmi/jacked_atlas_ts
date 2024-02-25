@@ -4,7 +4,7 @@
 <head>
 	<meta charset="utf-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-	<title>example 5: grid of images, with dynamic loading</title>
+	<title>example 5: applying transparency to loaded image</title>
 	<script>
 		globalThis.addEventListener("DOMContentLoaded", async () => {
 			const { image_pool, popupCanvas, getBGCanvas, getBGCtx } = await import("./index.ts")
@@ -31,6 +31,18 @@
 
 
 			popupCanvas(getBGCanvas(), 30)
+			setTimeout(() => {
+				image_pool.set("juice", {
+					source: {
+						x: 185,
+						y: 184,
+						width: 172,
+						height: 258,
+					}
+				})
+			}, 2000)
+			setTimeout(() => { image_pool.get("jack") }, 4000)
+			setTimeout(() => { image_pool.get("juice") }, 8000)
 
 			Object.assign(globalThis, { image_pool, getBGCanvas, getBGCtx })
 		})

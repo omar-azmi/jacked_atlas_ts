@@ -1,15 +1,15 @@
 export { popupCanvas } from "https://deno.land/x/kitchensink_ts@v0.7.3/devdebug.ts"
-export { getBGCanvas, getBGCtx } from "./funcdefs.ts"
-import { blob_fetcher } from "./funcdefs.ts"
-import { ImageClipped_LoaderAndSaver, ImageDataURI_LoaderAndSaver } from "./image_loaders.ts"
-import { ImagePool } from "./image_pool.ts"
+export { getBGCanvas, getBGCtx } from "../../src/funcdefs.ts"
+import { blob_fetcher } from "../../src/funcdefs.ts"
+import { ImageClipped_LoaderAndSaver, ImageDataURI_LoaderAndSaver } from "../../src/image_loaders.ts"
+import { ImagePool } from "../../src/image_pool.ts"
 
 
 export const image_pool = new ImagePool<string, any, any>(10)
 
 const
-	data_uri_loader = new ImageDataURI_LoaderAndSaver({type: "image/webp-lossless"}),
-	clipped_image_loader = new ImageClipped_LoaderAndSaver(await createImageBitmap(await blob_fetcher("../examples/1/source_image.jpg")))
+	data_uri_loader = new ImageDataURI_LoaderAndSaver({ type: "image/webp" }),
+	clipped_image_loader = new ImageClipped_LoaderAndSaver(await createImageBitmap(await blob_fetcher("../1/source_image.jpg")))
 
 image_pool.addLoader(data_uri_loader)
 image_pool.addLoader(clipped_image_loader)
@@ -25,7 +25,3 @@ image_pool.set("jack", {
 			}
 		}),
 })
-
-
-// examples / 1 / bitmasks / juice_1bit.webp
-// examples / 1 / bitmasks / jack_1bit.png
