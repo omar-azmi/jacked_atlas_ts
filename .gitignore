@@ -4,7 +4,7 @@
 /dist/
 
 # version lock files
-# /deno.lock
+/deno.lock
 
 # automatic file clones
 /.github/readme.md

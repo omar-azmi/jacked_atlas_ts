@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>example 5: grid of images, with dynamic loading</title>
+	<script>
+		globalThis.addEventListener("DOMContentLoaded", async () => {
+			const { image_pool, popupCanvas, getBGCanvas, getBGCtx } = await import("./index.ts")
+			const parseEventValue_CB = (default_value, callback, event) => {
+				const
+					elem = event.currentTarget,
+					value = parseFloat(elem.value)
+				callback(isFinite(value) ? value : default_value)
+			}
+			const parseEventJsonArray_CB = (default_value, callback, event) => {
+				const
+					elem = event.currentTarget,
+					value = JSON.parse(elem.value),
+					is_valid = Array.isArray(value) && value.length >= 1
+				callback(is_valid ? value : default_value)
+			}
+			const parseEventString_CB = (default_value, callback, event) => {
+				const
+					elem = event.currentTarget,
+					value = elem.value
+				callback(value ?? default_value)
+			}
+			const $ = (query) => document.querySelector(query)
+
+
+			popupCanvas(getBGCanvas(), 30)
+
+			Object.assign(globalThis, { image_pool, getBGCanvas, getBGCtx })
+		})
+	</script>
+	<style>
+		body {
+			width: 100vw;
+			height: 100vh;
+			font-family: monospace;
+		}
+
+		canvas {
+			cursor: pointer;
+		}
+	</style>
+</head>
+
+<body style="width: 100vw; height: 100vh;">
+	<div>click on one of the cells to highlight its sprite's rectangle</div>
+</body>
+
+</html>

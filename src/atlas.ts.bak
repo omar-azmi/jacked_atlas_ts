@@ -1,0 +1,41 @@
+import { Require, promise_resolve } from "./deps.ts"
+import { base64image_loader_step, imagebitmap_deletion_action } from "./funcdefs.ts"
+import { ImagePool } from "./image_pool.ts"
+
+
+// an atlas consists of one source image, and a collection of sprites, each with their own set of bounding box and masks
+
+interface AtlasEntryMeta {
+	x: number
+	y: number
+	width: number
+	height: number
+	/** mask source */
+	mask?: string
+}
+
+export class Atlas extends ImagePool<string> {
+	source: string
+	image?: ImageBitmap
+
+	constructor(capacity: number, source: string) {
+		super(capacity)
+		this.source = source
+	}
+
+	get(key: string, on_image_loaded_callback?: ((value: Require<any, "image">) => void) | undefined) {
+		
+	}
+
+	private async loadImage(on_image_loaded_callback?: (value: Require<this, "image">) => void) {
+		this.image = await base64image_loader_step.forward(promise_resolve(this.source))
+		on_image_loaded_callback?.(this as Require<this, "image">)
+	}
+
+	clear(): void {
+		const image = this.image
+		if (image) { imagebitmap_deletion_action(undefined, image) }
+		super.clear()
+	}
+}
+
