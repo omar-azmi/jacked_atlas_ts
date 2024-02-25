@@ -1,4 +1,4 @@
-import { DEBUG, blobToBase64, console_error, console_log, object_hasOwn } from "./deps.ts"
+import { DEBUG, Optional, blobToBase64, console_error, console_log, object_hasOwn } from "./deps.ts"
 import { getBGCanvas, getBGCtx } from "./funcdefs.ts"
 import { Transparency_Operation } from "./operations.ts"
 import { ImageCodecInput, ImageCodecOutput, ImageSource_Codec, MaskedRect, PositionedRect, PromiseOrRegular } from "./typedefs.ts"
@@ -11,6 +11,7 @@ export class ImageDataURI_Codec extends ImageSource_Codec<
 	ImageCodecInput<string>,
 	ImageCodecOutput<ImageEncodeOptions>
 > {
+	override format = "data-uri" as const
 	private args: ImageEncodeOptions
 
 	constructor(default_encoding_options: ImageEncodeOptions = { type: "image/png" }) {
@@ -33,17 +34,22 @@ export class ImageDataURI_Codec extends ImageSource_Codec<
 			image_type = blob.type,
 			image = await createImageBitmap(blob)
 		return {
+			format: this.format,
 			image,
 			args: { type: image_type }
 		}
 	}
-	async backward(input: PromiseOrRegular<ImageCodecOutput<ImageEncodeOptions | undefined>>): Promise<ImageCodecInput<string>> {
+	async backward(input: PromiseOrRegular<Optional<ImageCodecOutput<ImageEncodeOptions | undefined>, "format">>): Promise<ImageCodecInput<string>> {
 		const
 			default_args = this.args,
 			{ image, args = {} } = await input
-		getBGCtx(image.width, image.height).drawImage(image, 0, 0)
+		// we force resize the canvas so that when we later call `getBGCanvas().convertToBlob(...)`, the dimensions of the produced image do not exceed the source image.
+		getBGCtx(image.width, image.height, true).drawImage(image, 0, 0)
 		const blob = await getBGCanvas().convertToBlob({ ...default_args, ...args })
-		return { source: await blobToBase64(blob) }
+		return {
+			format: this.format,
+			source: await blobToBase64(blob)
+		}
 	}
 }
 
@@ -52,6 +58,7 @@ export class ImageClipped_Codec extends ImageSource_Codec<
 	ImageCodecInput<MaskedRect>,
 	ImageCodecOutput<PositionedRect>
 > {
+	override format = "clipped-image" as const
 	protected base?: CanvasImageSource
 	protected transparency_op = new Transparency_Operation(127)
 
@@ -82,8 +89,8 @@ export class ImageClipped_Codec extends ImageSource_Codec<
 			{ x, y, mask } = rect,
 			width = (mask ?? rect).width!,
 			height = (mask ?? rect).height!,
-			canvas = getBGCanvas(width, height),
-			ctx = getBGCtx(width, height)
+			// we force resize the canvas so that when we later call `createImageBitmap(getBGCanvas())`, the dimensions of the produced image do not exceed the source image.
+			ctx = getBGCtx(width, height, true)
 		if (mask) {
 			ctx.globalCompositeOperation = "copy"
 			ctx.drawImage(mask, 0, 0)
@@ -97,13 +104,14 @@ export class ImageClipped_Codec extends ImageSource_Codec<
 		if (base_image) {
 			ctx.drawImage(base_image, x, y, width, height, 0, 0, width, height)
 		}
-		const image = await createImageBitmap(canvas)
+		const image = await createImageBitmap(getBGCanvas())
 		return {
+			format: this.format,
 			image,
 			args: { x, y }
 		}
 	}
-	async backward(input: Promise<ImageCodecOutput<PositionedRect>>): Promise<ImageCodecInput<MaskedRect>> {
+	async backward(input: PromiseOrRegular<Optional<ImageCodecOutput<PositionedRect>, "format">>): Promise<ImageCodecInput<MaskedRect>> {
 		// TODO: check for bound-box of the buffer returned by `transparency_operation.backward`, and either minimize it,
 		// or if the buffer is entirely white (none of the rect actually gets masked), then drop the mask option entirely.
 		const
@@ -111,16 +119,17 @@ export class ImageClipped_Codec extends ImageSource_Codec<
 			transparency_operation = this.transparency_op,
 			width = image.width,
 			height = image.height,
-			canvas = getBGCanvas(width, height),
-			ctx = getBGCtx(width, height)
+			// we force resize the canvas so that when we later call `createImageBitmap(getBGCanvas())`, the dimensions of the produced image do not exceed the source image.
+			ctx = getBGCtx(width, height, true)
 		ctx.globalCompositeOperation = "copy"
 		ctx.drawImage(image, 0, 0)
 		const black_and_white_mask = transparency_operation.backward(ctx.getImageData(0, 0, width, height).data)
 		ctx.putImageData(new ImageData(black_and_white_mask, width), 0, 0)
 		return {
+			format: this.format,
 			source: {
 				x, y, width, height,
-				mask: await createImageBitmap(canvas)
+				mask: await createImageBitmap(getBGCanvas())
 			}
 		}
 	}
@@ -147,6 +156,7 @@ export class JAtlas_Codec extends ImageSource_Codec<
 	ImageCodecInput<JAtlasObjectEntry>,
 	ImageCodecOutput<PositionedRect>
 > {
+	override format = "jatlas-entry" as const
 	protected url_codec: ImageDataURI_Codec
 	protected clipper_codec: ImageClipped_Codec
 
@@ -176,15 +186,26 @@ export class JAtlas_Codec extends ImageSource_Codec<
 	async forward(input: PromiseOrRegular<ImageCodecInput<JAtlasObjectEntry>>): Promise<ImageCodecOutput<PositionedRect>> {
 		const
 			source = (await input).source,
-			{ mask, ...clipper_input } = source
-		return this.clipper_codec.forward({
-			source: {
-				...clipper_input,
-				mask: mask ? (await this.url_codec.forward({ source: mask })).image : undefined as any
-			}
-		})
+			{ mask, ...clipper_rect } = source,
+			output = await this.clipper_codec.forward({
+				source: {
+					...clipper_rect,
+					mask: mask ? (await this.url_codec.forward({ source: mask })).image : undefined as any
+				}
+			})
+		output.format = this.format
+		return output
 	}
-	async backward(input: PromiseOrRegular<ImageCodecOutput<PositionedRect>>): Promise<ImageCodecInput<JAtlasObjectEntry>> {
-		throw new Error("Method not implemented.")
+	async backward(input: PromiseOrRegular<Optional<ImageCodecOutput<PositionedRect>, "format">>): Promise<ImageCodecInput<JAtlasObjectEntry>> {
+		const
+			{ mask, ...clipped_rect } = (await this.clipper_codec.backward(input)).source,
+			data_uri = mask ? (await this.url_codec.backward({ image: mask, args: {} })).source : undefined
+		return {
+			format: this.format,
+			source: {
+				mask: data_uri,
+				...clipped_rect
+			}
+		}
 	}
 }

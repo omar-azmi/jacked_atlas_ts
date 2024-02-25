@@ -5,7 +5,7 @@ import { JAtlas_Codec, JAtlasObject } from "../../src/image_codecs.ts"
 import { ImagePool } from "../../src/image_pool.ts"
 
 
-export const image_pool = new ImagePool<string, any, any>(1)
+export const image_pool = new ImagePool<string>(1)
 
 const
 	atlas_json = await (await fetch("../1/segments.jatlas.json")).json() as JAtlasObject,
@@ -18,5 +18,8 @@ const
 image_pool.addCodec(jatlas_codec)
 
 for (const [name, atlas_entry] of object_entries(entries)) {
-	image_pool.set(name, { source: atlas_entry })
+	image_pool.set(name, {
+		format: "jatlas-entry",
+		source: atlas_entry
+	})
 }

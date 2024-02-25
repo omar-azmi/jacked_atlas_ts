@@ -7,7 +7,7 @@ export { clamp, sum } from "https://deno.land/x/kitchensink_ts@v0.7.3/numericmet
 export type { Rect, SimpleImageData } from "https://deno.land/x/kitchensink_ts@v0.7.3/struct.ts"
 export { sliceIntervalsTypedSubarray } from "https://deno.land/x/kitchensink_ts@v0.7.3/typedbuffer.ts"
 export type { Intervals } from "https://deno.land/x/kitchensink_ts@v0.7.3/typedbuffer.ts"
-export type { Require, UnitInterval } from "https://deno.land/x/kitchensink_ts@v0.7.3/typedefs.ts"
+export type { Optional, Require, UnitInterval } from "https://deno.land/x/kitchensink_ts@v0.7.3/typedefs.ts"
 
 export const enum DEBUG {
 	LOG = 1,

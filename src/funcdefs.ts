@@ -2,17 +2,17 @@ import { get_bg_canvas, get_bg_ctx } from "./deps.ts"
 import { PromiseOrRegular } from "./typedefs.ts"
 
 
-export const getBGCanvas = (min_width?: number | undefined, min_height?: number | undefined) => {
+export const getBGCanvas = (min_width?: number | undefined, min_height?: number | undefined, force_resize?: boolean) => {
 	const canvas = get_bg_canvas(min_width, min_height)
 	min_width ??= 0
 	min_height ??= 0
-	if (canvas.width < min_width) { canvas.width = min_width }
-	if (canvas.height < min_height) { canvas.height = min_height }
+	if (force_resize || (canvas.width < min_width)) { canvas.width = min_width }
+	if (force_resize || (canvas.height < min_height)) { canvas.height = min_height }
 	return canvas
 }
 
-export const getBGCtx = (min_width?: number | undefined, min_height?: number | undefined) => {
-	getBGCanvas(min_width, min_height)
+export const getBGCtx = (min_width?: number | undefined, min_height?: number | undefined, force_resize?: boolean) => {
+	getBGCanvas(min_width, min_height, force_resize)
 	const ctx = get_bg_ctx()
 	ctx.reset()
 	return ctx

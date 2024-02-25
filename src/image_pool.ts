@@ -1,4 +1,4 @@
-import { DEBUG, LimitedMap, Require, console_assert, console_error } from "./deps.ts"
+import { DEBUG, LimitedMap, console_assert, console_error } from "./deps.ts"
 import { imagebitmap_deletion_action, imagebitmap_is_closed } from "./funcdefs.ts"
 import { ImageCodecInput, ImageCodecOutput, ImageSource_Codec } from "./typedefs.ts"
 
@@ -18,9 +18,9 @@ class LimitedMap_ImageBitmap<K> extends LimitedMap<K, ImageBitmap> {
 // TODO: add plugin style source loaders
 type ImagePoolEntry<SOURCE = any, ARGS = any> = ImageCodecInput<SOURCE> & Partial<ImageCodecOutput<ARGS>> & {
 	/** TODO: debate whether or not this is even needed */
-	width: number
+	width?: number
 	/** TODO: debate whether or not this is even needed */
-	height: number
+	height?: number
 	/** encapsulate any meta data you desire. this property is not utilized by {@link ImagePool | `ImagePool`} at all */
 	meta?: { string: any }
 }
@@ -30,16 +30,26 @@ const try_all_image_loaders = async <
 	OUTPUT extends ImageCodecOutput<any> = any
 >(image_codecs: Array<ImageSource_Codec<INPUT, OUTPUT>>, source_input: INPUT): Promise<OUTPUT> => {
 	if (DEBUG.ASSERT) { console_assert(image_codecs.length > 0, "there are not image loaders in this ImagePool, so there's no way to load any format of image.") }
-	for (const loader of image_codecs) {
-		if (await loader.test(source_input) === true) {
-			return loader.forward(source_input)
+	const format = source_input.format
+	if (format) {
+		const codec = image_codecs.find((image_codec) => (image_codec.format === format))
+		if (codec) { return codec.forward(source_input) }
+	} else {
+		for (const codec of image_codecs) {
+			if (await codec.test(source_input) === true) {
+				return codec.forward(source_input)
+			}
 		}
 	}
-	if (DEBUG.ERROR) { console_error("no image loader is capable of loading the source:", source_input) }
+	if (DEBUG.ERROR) { console_error("no image loader is capable of loading the source:", source_input, "of the codec format:", format) }
 	throw Error(DEBUG.ERROR ? "failed to load image" : "")
 }
 
-export class ImagePool<KEY, SOURCE = any, ENTRY extends ImagePoolEntry<SOURCE> = any> extends Map<KEY, ENTRY> {
+export class ImagePool<
+	KEY,
+	SOURCE = any,
+	ENTRY extends ImagePoolEntry<SOURCE> = ImagePoolEntry<SOURCE>
+> extends Map<KEY, ENTRY> {
 	protected pool: LimitedMap_ImageBitmap<KEY>
 	protected codecs: Array<ImageSource_Codec<ImageCodecInput<SOURCE>, ImageCodecOutput<any>>> = []
 
@@ -52,7 +62,7 @@ export class ImagePool<KEY, SOURCE = any, ENTRY extends ImagePoolEntry<SOURCE> =
 		this.codecs.push(codec)
 	}
 
-	get(key: KEY, on_image_loaded_callback?: (value: Require<ENTRY, "image" | "args">) => void): ENTRY & ImageCodecOutput<any> | undefined {
+	get(key: KEY, on_image_loaded_callback?: (value: Required<ENTRY>) => void): Required<ENTRY> | undefined {
 		const
 			pool = this.pool,
 			value = super.get(key)
@@ -69,14 +79,14 @@ export class ImagePool<KEY, SOURCE = any, ENTRY extends ImagePoolEntry<SOURCE> =
 						value.width = image.width
 						value.height = image.height
 						value.args = args
-						return value as Require<ENTRY, "image" | "args">
+						return value as Required<ENTRY>
 					})
 					.then(on_image_loaded_callback)
 				return undefined
 			}
 			// if we make it to here, then the image was cached and hasn't been disposed (closed) yet. so it is perfectly viable for usage.
 		}
-		return value as ENTRY & ImageCodecOutput<any>
+		return value as Required<ENTRY>
 	}
 
 	set(key: KEY, value: ENTRY): this {
@@ -111,5 +121,3 @@ export class ImagePool<KEY, SOURCE = any, ENTRY extends ImagePoolEntry<SOURCE> =
 		return super.clear()
 	}
 }
-
-
