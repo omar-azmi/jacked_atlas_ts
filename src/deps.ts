@@ -1,4 +1,4 @@
-export { PureStep } from "https://deno.land/x/fbicodec_ts@v0.1.1/mod.ts"
+export { PureStep as Invertible } from "https://deno.land/x/fbicodec_ts@v0.1.1/mod.ts"
 export { blobToBase64 } from "https://deno.land/x/kitchensink_ts@v0.7.3/browser.ts"
 export { object_assign, object_entries, promise_resolve } from "https://deno.land/x/kitchensink_ts@v0.7.3/builtin_aliases_deps.ts"
 export { constructImageBitmapSource, constructImageBlob, constructImageData, coordinateTransformer, getBGCanvas as get_bg_canvas, getBGCtx as get_bg_ctx } from "https://deno.land/x/kitchensink_ts@v0.7.3/image.ts"

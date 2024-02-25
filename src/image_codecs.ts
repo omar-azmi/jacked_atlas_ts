@@ -1,22 +1,25 @@
 import { DEBUG, blobToBase64, console_error, console_log, object_hasOwn } from "./deps.ts"
 import { getBGCanvas, getBGCtx } from "./funcdefs.ts"
 import { Transparency_Operation } from "./operations.ts"
-import { ImageSource_LoaderAndSaver, LoadedImageWrapper, MaskedRect, PositionedRect, PromiseOrRegular } from "./typedefs.ts"
+import { ImageCodecInput, ImageCodecOutput, ImageSource_Codec, MaskedRect, PositionedRect, PromiseOrRegular } from "./typedefs.ts"
 
 
-// TODO: add ImageURL_LoaderAndSaver
+// TODO: add ImageURL_Codec
 
 /** an image source "loader and saver" for image data-uri types, such as `"data:image/png;base64,iVBOR..."`. */
-export class ImageDataURI_LoaderAndSaver extends ImageSource_LoaderAndSaver<string, ImageEncodeOptions> {
+export class ImageDataURI_Codec extends ImageSource_Codec<
+	ImageCodecInput<string>,
+	ImageCodecOutput<ImageEncodeOptions>
+> {
 	private args: ImageEncodeOptions
 
 	constructor(default_encoding_options: ImageEncodeOptions = { type: "image/png" }) {
 		super()
 		this.args = default_encoding_options
 	}
-	async test(test_source: Promise<string | any>): Promise<boolean> {
+	async test(test_input_source: PromiseOrRegular<ImageCodecInput<any>>): Promise<boolean> {
 		try {
-			const source = await test_source
+			const source = (await test_input_source).source
 			// check if the source starts with "data:image/"
 			return typeof source === "string" && source.startsWith("data:image/")
 		} catch (error) {
@@ -24,28 +27,31 @@ export class ImageDataURI_LoaderAndSaver extends ImageSource_LoaderAndSaver<stri
 		}
 		return false
 	}
-	async forward(input: PromiseOrRegular<string>): Promise<LoadedImageWrapper<ImageEncodeOptions>> {
+	async forward(input: PromiseOrRegular<ImageCodecInput<string>>): Promise<ImageCodecOutput<ImageEncodeOptions>> {
 		const
-			blob = await (await fetch(await input)).blob(),
+			blob = await (await fetch((await input).source)).blob(),
 			image_type = blob.type,
 			image = await createImageBitmap(blob)
 		return {
-			value: image,
+			image,
 			args: { type: image_type }
 		}
 	}
-	async backward(input: PromiseOrRegular<LoadedImageWrapper<ImageEncodeOptions | undefined>>): Promise<string> {
+	async backward(input: PromiseOrRegular<ImageCodecOutput<ImageEncodeOptions | undefined>>): Promise<ImageCodecInput<string>> {
 		const
 			default_args = this.args,
-			{ value: image, args = {} } = await input
+			{ image, args = {} } = await input
 		getBGCtx(image.width, image.height).drawImage(image, 0, 0)
 		const blob = await getBGCanvas().convertToBlob({ ...default_args, ...args })
-		return blobToBase64(blob)
+		return { source: await blobToBase64(blob) }
 	}
 }
 
 
-export class ImageClipped_LoaderAndSaver extends ImageSource_LoaderAndSaver<MaskedRect, PositionedRect> {
+export class ImageClipped_Codec extends ImageSource_Codec<
+	ImageCodecInput<MaskedRect>,
+	ImageCodecOutput<PositionedRect>
+> {
 	protected base?: CanvasImageSource
 	protected transparency_op = new Transparency_Operation(127)
 
@@ -57,8 +63,8 @@ export class ImageClipped_LoaderAndSaver extends ImageSource_LoaderAndSaver<Mask
 		this.base = base_image
 	}
 
-	async test(test_source: PromiseOrRegular<MaskedRect | any>): Promise<boolean> {
-		const source = await test_source
+	async test(test_input_source: PromiseOrRegular<ImageCodecInput<any>>): Promise<boolean> {
+		const source = (await test_input_source).source
 		return (typeof source === "object"
 			&& object_hasOwn(source, "x")
 			&& object_hasOwn(source, "y")
@@ -68,9 +74,9 @@ export class ImageClipped_LoaderAndSaver extends ImageSource_LoaderAndSaver<Mask
 			)
 		)
 	}
-	async forward(input: PromiseOrRegular<MaskedRect>): Promise<LoadedImageWrapper<PositionedRect>> {
+	async forward(input: PromiseOrRegular<ImageCodecInput<MaskedRect>>): Promise<ImageCodecOutput<PositionedRect>> {
 		const
-			rect = await input,
+			rect = (await input).source,
 			transparency_operation = this.transparency_op,
 			base_image = this.base,
 			{ x, y, mask } = rect,
@@ -93,15 +99,15 @@ export class ImageClipped_LoaderAndSaver extends ImageSource_LoaderAndSaver<Mask
 		}
 		const image = await createImageBitmap(canvas)
 		return {
-			value: image,
+			image,
 			args: { x, y }
 		}
 	}
-	async backward(input: Promise<LoadedImageWrapper<PositionedRect>>): Promise<MaskedRect> {
+	async backward(input: Promise<ImageCodecOutput<PositionedRect>>): Promise<ImageCodecInput<MaskedRect>> {
 		// TODO: check for bound-box of the buffer returned by `transparency_operation.backward`, and either minimize it,
 		// or if the buffer is entirely white (none of the rect actually gets masked), then drop the mask option entirely.
 		const
-			{ value: image, args: { x = 0, y = 0 } } = await input,
+			{ image, args: { x = 0, y = 0 } } = await input,
 			transparency_operation = this.transparency_op,
 			width = image.width,
 			height = image.height,
@@ -112,8 +118,10 @@ export class ImageClipped_LoaderAndSaver extends ImageSource_LoaderAndSaver<Mask
 		const black_and_white_mask = transparency_operation.backward(ctx.getImageData(0, 0, width, height).data)
 		ctx.putImageData(new ImageData(black_and_white_mask, width), 0, 0)
 		return {
-			x, y, width, height,
-			mask: await createImageBitmap(canvas)
+			source: {
+				x, y, width, height,
+				mask: await createImageBitmap(canvas)
+			}
 		}
 	}
 }
@@ -135,24 +143,27 @@ export interface JAtlasObject {
 	entries: { [name: string]: JAtlasObjectEntry }
 }
 
-export class JAtlas_LoaderAndSaver extends ImageSource_LoaderAndSaver<JAtlasObjectEntry, PositionedRect> {
-	protected url_loader_step: ImageDataURI_LoaderAndSaver
-	protected clipper_step: ImageClipped_LoaderAndSaver
+export class JAtlas_Codec extends ImageSource_Codec<
+	ImageCodecInput<JAtlasObjectEntry>,
+	ImageCodecOutput<PositionedRect>
+> {
+	protected url_codec: ImageDataURI_Codec
+	protected clipper_codec: ImageClipped_Codec
 
 	constructor(base_image_source: string) {
 		super()
 		const
-			url_loader_step = new ImageDataURI_LoaderAndSaver(),
-			clipper_step = new ImageClipped_LoaderAndSaver()
-		this.url_loader_step = url_loader_step
-		this.clipper_step = clipper_step
-		url_loader_step.forward(base_image_source).then((output) => {
-			clipper_step.setBaseImage(output.value)
+			url_codec = new ImageDataURI_Codec(),
+			clipper_codec = new ImageClipped_Codec()
+		this.url_codec = url_codec
+		this.clipper_codec = clipper_codec
+		url_codec.forward({ source: base_image_source }).then((output) => {
+			clipper_codec.setBaseImage(output.image)
 		})
 	}
 
-	async test(test_source: PromiseOrRegular<JAtlasObjectEntry | any>): Promise<boolean> {
-		const source = await test_source
+	async test(test_input_source: PromiseOrRegular<ImageCodecInput<any>>): Promise<boolean> {
+		const source = (await test_input_source).source
 		return (typeof source === "object"
 			&& object_hasOwn(source, "x")
 			&& object_hasOwn(source, "y")
@@ -162,16 +173,18 @@ export class JAtlas_LoaderAndSaver extends ImageSource_LoaderAndSaver<JAtlasObje
 			)
 		)
 	}
-	async forward(input: PromiseOrRegular<JAtlasObjectEntry>): Promise<LoadedImageWrapper<PositionedRect>> {
+	async forward(input: PromiseOrRegular<ImageCodecInput<JAtlasObjectEntry>>): Promise<ImageCodecOutput<PositionedRect>> {
 		const
-			source = await input,
+			source = (await input).source,
 			{ mask, ...clipper_input } = source
-		return this.clipper_step.forward({
-			...clipper_input,
-			mask: mask ? (await this.url_loader_step.forward(mask)).value : undefined as any
+		return this.clipper_codec.forward({
+			source: {
+				...clipper_input,
+				mask: mask ? (await this.url_codec.forward({ source: mask })).image : undefined as any
+			}
 		})
 	}
-	async backward(input: PromiseOrRegular<LoadedImageWrapper<PositionedRect>>): Promise<JAtlasObjectEntry> {
+	async backward(input: PromiseOrRegular<ImageCodecOutput<PositionedRect>>): Promise<ImageCodecInput<JAtlasObjectEntry>> {
 		throw new Error("Method not implemented.")
 	}
 }

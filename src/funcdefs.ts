@@ -1,4 +1,5 @@
-import { PureStep, blobToBase64, get_bg_canvas, get_bg_ctx, } from "./deps.ts"
+import { get_bg_canvas, get_bg_ctx } from "./deps.ts"
+import { PromiseOrRegular } from "./typedefs.ts"
 
 
 export const getBGCanvas = (min_width?: number | undefined, min_height?: number | undefined) => {
@@ -17,24 +18,11 @@ export const getBGCtx = (min_width?: number | undefined, min_height?: number | u
 	return ctx
 }
 
-export const blob_fetcher = async (source: string | URL): Promise<Blob> => {
-	const response = await fetch(source)
+// TODO: purge and remove dependance on this function, OR make all every fetchers rely on this function 
+export const blob_fetcher = async (source: PromiseOrRegular<string | URL>): Promise<Blob> => {
+	const response = await fetch(await source)
 	return await response.blob()
 }
-
-export class Base64ImageLoader_Step extends PureStep<Promise<string>, Promise<ImageBitmap>> {
-	async forward(input: Promise<string | URL>): Promise<ImageBitmap> {
-		return await createImageBitmap(await blob_fetcher(await input))
-	}
-	async backward(input: Promise<ImageBitmap>): Promise<string> {
-		const image = await input
-		getBGCtx(image.width, image.height).drawImage(image, 0, 0)
-		const blob = await getBGCanvas().convertToBlob({ type: "image/png", quality: 1 })
-		return blobToBase64(blob)
-	}
-}
-
-export const base64image_loader_step = new Base64ImageLoader_Step()
 
 /** test if a certain `ImageBitmap` has been closed.
  * the way it is done is simply by testing if both its `width` and `height` are zero.

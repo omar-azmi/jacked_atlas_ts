@@ -1,4 +1,4 @@
-import { PureStep } from "./deps.ts"
+import { Invertible } from "./deps.ts"
 
 export interface SizedRect {
 	/** width of a sprite or rectangle. */
@@ -26,27 +26,46 @@ export type MaskedRect = (Rect & { mask?: ImageBitmap }) | RectWithMask
 
 export type PromiseOrRegular<T> = Promise<T> | T
 
-export interface LoadedImageWrapper<ARGS> {
-	value: ImageBitmap
+/** the input object fed to an {@link ImageSource_Codec | image codec's} {@link ImageSource_Codec.forward | `forward`} method, to get a loaded image bitmap {@link ImageCodecOutput | (wrapped) object} <br>
+ * it is also the output of the same image codec's {@link ImageSource_Codec.backward | `backward`} method.
+*/
+export interface ImageCodecInput<SOURCE> {
+	/** the source of image is placed in this member. */
+	source: SOURCE
+}
+
+/** the output object of an {@link ImageSource_Codec | image codec's} {@link ImageSource_Codec.forward | `forward`} method. <br>
+ * it can also be used as an input by the same image codec's {@link ImageSource_Codec.backward | `backward`} method to convert the image back to the {@link ImageCodecInput | source object}.
+*/
+export interface ImageCodecOutput<ARGS> {
+	/** the image loaded by a {@link ImageSource_Codec | image codec} */
+	image: ImageBitmap
+
+	/** encapsulates any args that were used by the {@link ImageSource_Codec | image codec} when loading the source of the image.
+	 * these args will be required when saving the image back to the source.
+	*/
 	args: ARGS
 }
 
-/** an image source "loader and saver" provides an invertible interface to {@link forward | load} or {@link backward | save} an image,
- * after it has been {@link test | tested} to verify that it is capable of loading the specific type of {@link SOURCE | source}.
+/** an image source "codec" provides an invertible interface to {@link forward | load} or {@link backward | save} an image,
+ * after it has been {@link test | tested} to verify that it is capable of loading the specific type of {@link INPUT | source}.
 */
-export abstract class ImageSource_LoaderAndSaver<SOURCE, ARGS = never> extends PureStep<Promise<SOURCE>, Promise<LoadedImageWrapper<ARGS>>> {
-	/** a method that tests whether or not the source can be loaded by this image loader. */
-	abstract test(test_source: PromiseOrRegular<SOURCE | any>): Promise<boolean>
+export abstract class ImageSource_Codec<
+	INPUT extends ImageCodecInput<any>,
+	OUTPUT extends ImageCodecOutput<any>
+> extends Invertible<Promise<INPUT>, Promise<OUTPUT>> {
+	/** a method that tests whether or not the source can be loaded by this image codec. */
+	abstract test(test_input_source: PromiseOrRegular<ImageCodecInput<any>>): Promise<boolean>
 
 	/** a method that loads the source of the image into an `ImageBitmap`. <br>
-	 * this is method is called only after the {@link test | `test`} method verifies that this loader is capable of loading this kind of {@link SOURCE | source}.
+	 * this is method is called only after the {@link test | `test`} method verifies that this codec is capable of loading this kind of {@link INPUT | source}.
 	*/
-	abstract forward(input: PromiseOrRegular<SOURCE>): Promise<LoadedImageWrapper<ARGS>>
+	abstract forward(input: PromiseOrRegular<INPUT>): Promise<OUTPUT>
 
-	/** a method that saves input `ImageBitmap` back to the {@link SOURCE | source} kind. <br>
+	/** a method that saves input `ImageBitmap` back to the {@link INPUT | source} kind. <br>
 	 * this operation is not always viable. for example, you cannot save an image that you loaded from an HTTP URL back to the source. <br>
 	 * in such cases, you can simply fake the saving operation, and pretend that the the image has been saved back to the source.
 	*/
-	abstract backward(input: PromiseOrRegular<LoadedImageWrapper<ARGS>>): Promise<SOURCE>
+	abstract backward(input: PromiseOrRegular<OUTPUT>): Promise<INPUT>
 }
 

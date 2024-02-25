@@ -1,7 +1,7 @@
-import { PureStep } from "./deps.ts"
+import { Invertible } from "./deps.ts"
 
 
-export class Transparency_Operation extends PureStep<Uint8Array | Uint8ClampedArray, Uint8Array | Uint8ClampedArray> {
+export class Transparency_Operation extends Invertible<Uint8Array | Uint8ClampedArray, Uint8Array | Uint8ClampedArray> {
 	protected alpha_offset: number
 
 	constructor(alpha_offset = 127) {
